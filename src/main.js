@@ -4,9 +4,12 @@ import { AmbientLight, LightingEffect, _SunLight as SunLight } from '@deck.gl/co
 import { PolygonLayer, SolidPolygonLayer, ScatterplotLayer, ArcLayer } from '@deck.gl/layers';
 
 import { TOWNSHIPS } from './townships.js';
+import { makeProjector, pointInPolygon } from './geo.js';
 import { fetchOverpass } from './osm.js';
 import { CATEGORY_LABEL } from './heights.js';
-import { DEFAULT_ASSUMPTIONS, buildSites, scoreSites, microGridLinks, summarise, toCSV, isViable } from './solar.js';
+import {
+  DEFAULT_ASSUMPTIONS, HOUSEHOLD_KWH_YR, SDP_EXISTING_KWP, buildSites, scoreSites, microGridLinks, summarise, toCSV, isViable
+} from './solar.js';
 import { supabase, loadAssumptionOverrides, saveShortlist } from './supabase.js';
 
 const $ = (id) => document.getElementById(id);
@@ -26,7 +29,8 @@ const state = {
   carparks: true,
   microgrid: true,
   satellite: false,
-  selected: null,
+  selection: new Set(), // sites picked by click, Shift+click, Shift+drag or "Select top 10"
+  selVersion: 0, // bumped on every change so deck.gl re-evaluates colours
   shadingReady: false
 };
 
@@ -90,7 +94,7 @@ const SOURCE_LABEL = {
 };
 
 function fillColor(s) {
-  if (state.selected === s) return [255, 255, 255];
+  if (state.selection.has(s)) return [255, 255, 255];
   if (state.colorBy === 'category') return CATEGORY_COLOR[s.category];
   if (state.colorBy === 'shading') return SHADE_RAMP(s.shading ?? 1);
   if (state.colorBy === 'confidence') return confColor(s.heightConfidence ?? 0.3);
@@ -141,7 +145,7 @@ function render() {
   const pad = 0.01;
   const buildings = state.sites.filter((x) => x.category !== 'carpark');
   const carparks = state.carparks ? state.sites.filter((x) => x.category === 'carpark') : [];
-  const trig = [state.colorBy, state.selected?.id, state.shadingReady, JSON.stringify(state.assumptions)];
+  const trig = [state.colorBy, state.selVersion, state.shadingReady, JSON.stringify(state.assumptions)];
 
   const layers = [
     // Invisible ground plane that receives shadows.
@@ -172,7 +176,7 @@ function render() {
       extruded: true,
       getPolygon: (d) => d.polygon,
       getElevation: (d) => d.height,
-      getFillColor: (d) => (state.selected === d ? [255, 255, 255, 230] : state.colorBy === 'category' ? [...CATEGORY_COLOR.carpark, 170] : [...fillColor(d), 170]),
+      getFillColor: (d) => (state.selection.has(d) ? [255, 255, 255, 230] : state.colorBy === 'category' ? [...CATEGORY_COLOR.carpark, 170] : [...fillColor(d), 170]),
       pickable: true,
       autoHighlight: true,
       updateTriggers: { getFillColor: trig }
@@ -212,19 +216,61 @@ function render() {
   overlay.setProps({ layers, effects: [lightingEffect()], onClick });
 }
 
-function getTooltip({ object, layer }) {
-  if (!object) return null;
+// deck.gl's GPU picking returns nothing while the shadow LightingEffect is on (deck.gl 9.4:
+// luma.gl reports missing shadow-map bindings in the picking pass), so clicks, tooltips and
+// box selection fall back to geometry. For a click we follow the camera ray through the
+// cursor and take the highest roof it passes through (roofs of tall blocks appear offset
+// from their footprints when the map is tilted).
+function siteAt({ viewport, x, y }) {
+  if (!state.proj || !viewport || x == null) return null;
+  const H = 100; // reference height (m) for the ray's second point
+  const [ax, ay] = state.proj.toXY(viewport.unproject([x, y], { targetZ: 0 }));
+  const [bx, by] = state.proj.toXY(viewport.unproject([x, y], { targetZ: H }));
+  let best = null;
+  for (const s of state.sites) {
+    if (s.category === 'carpark' && !state.carparks) continue;
+    const t = s.height / H;
+    const px = ax + (bx - ax) * t, py = ay + (by - ay) * t;
+    const [x0, y0, x1, y1] = s.bbox;
+    if (px < x0 || px > x1 || py < y0 || py > y1) continue;
+    if (pointInPolygon(px, py, s.xy) && (!best || s.height > best.height)) best = s;
+  }
+  return best;
+}
+
+function sitesInScreenRect({ x, y, width, height }) {
+  const quad = [[x, y], [x + width, y], [x + width, y + height], [x, y + height]].map((p) =>
+    state.proj.toXY(map.unproject(p).toArray())
+  );
+  return state.sites.filter(
+    (s) => isViable(s) && (s.category !== 'carpark' || state.carparks) && pointInPolygon(s.centroid[0], s.centroid[1], quad)
+  );
+}
+
+const siteTooltip = (s) => ({
+  text: `${s.name || s.categoryLabel}\nScore ${s.score.toFixed(0)} · ${fmt(s.kwp, 0)} kWp · ${fmt(s.kwh / 1000, 0)} MWh/yr · ${fmt(s.co2, 0)} t CO₂/yr`
+});
+
+function getTooltip(info) {
+  const { object, layer } = info;
+  if (!object) {
+    const s = siteAt(info);
+    return s ? siteTooltip(s) : null;
+  }
   if (layer.id === 'community') return { text: `${object.name || 'Community facility'}\n${object.type}` };
   if (layer.id === 'microgrid')
     return { text: `Micro-grid proposal\n${object.donor.name || object.donor.categoryLabel} → ${object.community.name || object.community.type}\n${(object.dist / 1000).toFixed(2)} km` };
-  return {
-    text: `${object.name || object.categoryLabel}\nScore ${object.score.toFixed(0)} · ${fmt(object.kwp, 0)} kWp · ${fmt(object.kwh / 1000, 0)} MWh/yr`
-  };
+  return siteTooltip(object);
 }
 
-function onClick({ object, layer }) {
-  if (!object || !['buildings', 'carparks'].includes(layer?.id)) return;
-  select(object, false);
+// Shift, Ctrl or Cmd adds to / removes from the selection instead of replacing it.
+const isMulti = (e) => !!(e && (e.shiftKey || e.ctrlKey || e.metaKey));
+
+function onClick(info, event) {
+  const site = ['buildings', 'carparks'].includes(info.layer?.id) ? info.object : siteAt(info);
+  // MapboxOverlay passes MapLibre's MapMouseEvent as srcEvent; the DOM event is inside it.
+  const dom = event?.srcEvent?.originalEvent ?? event?.srcEvent;
+  if (site) select(site, { additive: isMulti(dom) });
 }
 
 // ---------- UI ----------
@@ -232,7 +278,7 @@ const fmt = (v, d = 1) => (Number.isFinite(v) ? v.toLocaleString('en-MY', { maxi
 
 function renderKPIs() {
   const k = summarise(state.sites);
-  const homes = k.kwh / 3000; // ~250 kWh/month per household
+  const homes = k.kwh / HOUSEHOLD_KWH_YR;
   $('kpis').innerHTML = `
     <div class="kpi hero"><div class="v">${fmt(k.co2 / 1000, 1)} kt CO₂/yr</div><div class="l">Avoided emissions if every viable roof and car park goes solar</div></div>
     <div class="kpi"><div class="v">${fmt(k.kwp / 1000, 1)} MWp</div><div class="l">Solar potential (${fmt(k.count, 0)} sites)</div></div>
@@ -246,30 +292,145 @@ function renderRanking() {
   $('ranking').innerHTML = state.ranked
     .slice(0, 25)
     .map(
-      (s, i) => `<li data-i="${i}" class="${state.selected === s ? 'sel' : ''}"><span class="score">${s.score.toFixed(0)}</span>
+      (s, i) => `<li data-i="${i}" class="${state.selection.has(s) ? 'sel' : ''}"><span class="score">${s.score.toFixed(0)}</span>
       ${esc(s.name || s.categoryLabel)}<br><span class="meta">${fmt(s.kwp, 0)} kWp · ${fmt(s.payback, 1)} yr payback${s.flags.length ? ' · ⚠' : ''}</span></li>`
     )
     .join('');
 }
 $('ranking').addEventListener('click', (e) => {
   const li = e.target.closest('li');
-  if (li) select(state.ranked[+li.dataset.i], true);
+  if (li) select(state.ranked[+li.dataset.i], { fly: !isMulti(e), additive: isMulti(e) });
 });
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
-function select(site, fly) {
-  state.selected = site;
-  if (fly) map.flyTo({ center: site.position, zoom: 17.5, pitch: 60, duration: 1500 });
-  renderDetail();
+// ---------- selection ----------
+function selectionChanged() {
+  state.selVersion++;
+  renderSelection();
   renderRanking();
   render();
 }
 
-function renderDetail() {
-  const s = state.selected;
+function select(site, { fly = false, additive = false } = {}) {
+  if (!additive) state.selection = new Set([site]);
+  else if (state.selection.has(site)) state.selection.delete(site);
+  else state.selection.add(site);
+  if (fly && state.selection.size === 1) map.flyTo({ center: site.position, zoom: 17.5, pitch: 60, duration: 1500 });
+  selectionChanged();
+}
+
+function selectMany(sites, additive = true) {
+  if (!additive) state.selection = new Set();
+  for (const s of sites) state.selection.add(s);
+  selectionChanged();
+}
+
+function clearSelection() {
+  state.selection = new Set();
+  selectionChanged();
+}
+
+// One site: its detail card. Several: their combined impact.
+function renderSelection() {
+  if (state.selection.size > 1) renderSelectionSummary();
+  else renderDetail();
+}
+
+function renderSelectionSummary() {
   const el = $('detail');
-  if (!s) { el.hidden = true; return; }
+  el.hidden = false;
+  const sites = [...state.selection].sort((a, b) => b.co2 - a.co2);
+  const k = summarise(sites);
+  const town = summarise(state.sites);
+  const left = sites.length - k.count;
+  const payback = k.savings > 0 ? k.capex / k.savings : Infinity;
+  const rows = [
+    ['Solar potential', `${fmt(k.kwp, 0)} kWp`],
+    ['Generation', `${fmt(k.kwh / 1000, 0)} MWh/yr`],
+    ["Homes' worth of electricity", fmt(k.kwh / HOUSEHOLD_KWH_YR, 0)],
+    ['Self-consumed on site', `${fmt(k.kwh ? (k.selfUse / k.kwh) * 100 : 0, 0)} %`],
+    ['CAPEX', `RM ${fmt(k.capex, 0)}`],
+    ['Annual savings', `RM ${fmt(k.savings, 0)}`],
+    ['Payback (combined)', `${fmt(payback, 1)} years`],
+    ['Share of township potential', `${fmt(town.co2 ? (k.co2 / town.co2) * 100 : 0, 1)} %`],
+    ["vs SDP's 603 kWp rooftop PV today", `${fmt(k.kwp / SDP_EXISTING_KWP, 1)}×`]
+  ];
+  el.innerHTML = `<button class="close" aria-label="Clear selection">×</button>
+    <h3>${sites.length} sites selected</h3>
+    <div class="sub">${left ? `${left} too small or utility-owned, left out of the totals · ` : ''}Shift+click to add or remove</div>
+    <div class="co2hero">${fmt(k.co2, 0)} t CO₂/yr</div>
+    <div class="sub">avoided if these ${k.count} sites go solar</div>
+    <table class="totals">${rows.map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join('')}</table>
+    <ol class="sellist">${sites
+      .map((s, i) => `<li data-i="${i}" title="Click to remove"><span class="n">${esc(s.name || s.categoryLabel)}</span><span>${fmt(s.co2, 0)} t</span></li>`)
+      .join('')}</ol>
+    <div class="actions">
+      <button class="small" id="selCsv">Export selection CSV</button>
+      <button class="small" id="selClear">Clear selection</button>
+    </div>`;
+  el.querySelector('.close').onclick = clearSelection;
+  el.querySelector('#selClear').onclick = clearSelection;
+  el.querySelector('#selCsv').onclick = () => download(toCSV(sites), `solar-selection-${state.township}.csv`);
+  el.querySelector('.sellist').onclick = (e) => {
+    const li = e.target.closest('li');
+    if (li) select(sites[+li.dataset.i], { additive: true });
+  };
+}
+
+function download(text, filename) {
+  const blob = new Blob([text], { type: 'text/csv' });
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: filename });
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// Shift+drag on the map draws a box and adds every viable building and car park whose
+// footprint centre lies on the ground inside it (including ones hidden behind taller blocks).
+function enableBoxSelect() {
+  map.boxZoom.disable(); // MapLibre uses Shift+drag for box zoom by default
+  const container = map.getCanvasContainer();
+  let start = null;
+  let boxEl = null;
+  const point = (e) => {
+    const r = container.getBoundingClientRect();
+    return [e.clientX - r.left, e.clientY - r.top];
+  };
+  container.addEventListener('mousedown', (e) => {
+    if (!e.shiftKey || e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    map.dragPan.disable();
+    start = point(e);
+    boxEl = Object.assign(document.createElement('div'), { id: 'selbox' });
+    container.appendChild(boxEl);
+  }, true);
+  window.addEventListener('mousemove', (e) => {
+    if (!start) return;
+    const [x, y] = point(e);
+    Object.assign(boxEl.style, {
+      left: `${Math.min(x, start[0])}px`, top: `${Math.min(y, start[1])}px`,
+      width: `${Math.abs(x - start[0])}px`, height: `${Math.abs(y - start[1])}px`
+    });
+  });
+  window.addEventListener('mouseup', (e) => {
+    if (!start) return;
+    const [x, y] = point(e);
+    const rect = { x: Math.min(x, start[0]), y: Math.min(y, start[1]), width: Math.abs(x - start[0]), height: Math.abs(y - start[1]) };
+    start = null;
+    boxEl.remove();
+    map.dragPan.enable();
+    if (rect.width < 4 || rect.height < 4) return; // a Shift+click, handled by onClick
+    const sites = sitesInScreenRect(rect);
+    if (sites.length) selectMany(sites);
+    setStatus(`Box selected ${sites.length} viable sites (${state.selection.size} in selection).`);
+  });
+}
+
+function renderDetail() {
+  const el = $('detail');
+  if (state.selection.size !== 1) { el.hidden = true; return; }
+  const [s] = state.selection;
   el.hidden = false;
   const rows = [
     ['Building type', s.categoryLabel],
@@ -293,6 +454,8 @@ function renderDetail() {
   el.innerHTML = `<button class="close" aria-label="Close">×</button>
     <h3>${esc(s.name || s.categoryLabel)}</h3>
     <div class="sub">${s.id} · ${lat.toFixed(5)}, ${lon.toFixed(5)}</div>
+    <div class="co2hero">${fmt(s.co2, 1)} t CO₂/yr</div>
+    <div class="sub">avoided · ${fmt(s.kwp, 0)} kWp · ${fmt(s.kwh / 1000, 0)} MWh/yr · Shift+click more sites to combine</div>
     <div>${s.flags.length ? s.flags.map((f) => `<span class="flag">${f}</span>`).join('') : '<span class="flag ok">Passes engineering checks</span>'}</div>
     ${s.dataFlags.length ? `<div>${s.dataFlags.map((f) => `<span class="flag data" title="Data quality">${DATA_FLAG_LABEL[f] ?? f}</span>`).join('')}</div>` : ''}
     <table>${rows.map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join('')}</table>
@@ -301,7 +464,7 @@ function renderDetail() {
       ${/^(way|node|relation)\//.test(s.id) ? `<a href="https://www.openstreetmap.org/${s.id}" target="_blank"><button class="small">View on OSM</button></a>` : ''}
       <a href="https://www.google.com/maps/@${lat},${lon},120m/data=!3m1!1e3" target="_blank"><button class="small">Satellite</button></a>
     </div>`;
-  el.querySelector('.close').onclick = () => { state.selected = null; renderDetail(); renderRanking(); render(); };
+  el.querySelector('.close').onclick = clearSelection;
 }
 
 const DATA_FLAG_LABEL = {
@@ -333,7 +496,7 @@ function recompute() {
   state.links = microGridLinks(state.sites, state.raw.community);
   renderKPIs();
   renderRanking();
-  renderDetail();
+  renderSelection();
   render();
 }
 
@@ -364,8 +527,9 @@ function runShading() {
 // ---------- loading ----------
 async function loadTownship(id, live = false) {
   state.township = id;
-  state.selected = null;
-  renderDetail();
+  state.selection = new Set();
+  state.selVersion++;
+  renderSelection();
   const t = TOWNSHIPS[id];
   setStatus(live ? 'Fetching live data from OpenStreetMap…' : 'Loading township data…');
   state.raw = live
@@ -374,6 +538,7 @@ async function loadTownship(id, live = false) {
   const { sites, origin } = buildSites(state.raw);
   state.sites = sites;
   state.origin = origin;
+  state.proj = makeProjector(...origin); // same local projection buildSites used for s.xy
   recompute();
   map.flyTo({ center: [t.view.longitude, t.view.latitude], zoom: t.view.zoom, pitch: t.view.pitch, bearing: t.view.bearing, duration: 1200 });
   runShading();
@@ -414,12 +579,9 @@ function bindControls() {
   $('satellite').onchange = (e) => { state.satellite = e.target.checked; map.setStyle(state.satellite ? SATELLITE_STYLE : DARK_STYLE); };
   $('colorBy').onchange = (e) => { state.colorBy = e.target.value; renderLegend(); render(); };
 
-  $('csv').onclick = () => {
-    const blob = new Blob([toCSV(state.ranked)], { type: 'text/csv' });
-    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `solar-shortlist-${state.township}.csv` });
-    a.click();
-    URL.revokeObjectURL(a.href);
-  };
+  $('csv').onclick = () => download(toCSV(state.ranked), `solar-shortlist-${state.township}.csv`);
+  $('top10').onclick = () => selectMany(state.ranked.slice(0, 10), false);
+  enableBoxSelect();
 
   $('refresh').onclick = () => loadTownship(state.township, true).catch((err) => setStatus(`Live fetch failed: ${err.message}`));
 

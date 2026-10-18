@@ -77,6 +77,14 @@ footer a { color: var(--muted); }
 .flag.ok { background: rgba(85, 214, 138, 0.15); color: var(--good); }
 .flag.data { background: rgba(120, 170, 255, 0.14); color: #9cc0ff; }
 .actions { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+.co2hero { margin-top: 8px; font-size: 22px; font-weight: 650; color: var(--good); font-variant-numeric: tabular-nums; }
+#detail table.totals td:last-child { white-space: nowrap; padding-left: 8px; }
+.sellist { margin: 10px 0 0; padding: 0; list-style: none; max-height: 180px; overflow-y: auto; font-size: 12px; }
+.sellist li { display: flex; justify-content: space-between; gap: 8px; padding: 2px 4px; cursor: pointer; border-radius: 4px; }
+.sellist li:hover { background: #232a38; }
+.sellist li:hover .n { text-decoration: line-through; }
+.sellist li span:last-child { flex: none; color: var(--muted); font-variant-numeric: tabular-nums; }
+#selbox { position: absolute; border: 1px dashed #9cc0ff; background: rgba(120, 170, 255, 0.12); pointer-events: none; z-index: 3; }
 .actions a, .actions button { text-decoration: none; }
 .deck-tooltip { font-family: inherit !important; font-size: 12px !important; border-radius: 6px; }
 

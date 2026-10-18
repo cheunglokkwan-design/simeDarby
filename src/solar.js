@@ -18,6 +18,10 @@ export const DEFAULT_ASSUMPTIONS = {
   minKwp: 3
 };
 
+// Context figures for impact comparisons.
+export const HOUSEHOLD_KWH_YR = 3000; // ~250 kWh/month per household
+export const SDP_EXISTING_KWP = 603; // SDP's installed rooftop PV (2024 Sustainability Highlights)
+
 // Fraction of footprint usable for panels (setbacks, plant, pitch, orientation).
 const USABLE_FRACTION = {
   residential: 0.45, apartments: 0.4, retail: 0.65, commercial: 0.6,
@@ -154,6 +158,7 @@ export function summarise(sites) {
     co2: sum('co2'),
     capex: sum('capex'),
     savings: sum('savings'),
+    selfUse: sum('selfUse'),
     carparkKwp: sum('kwp', carparks)
   };
 }

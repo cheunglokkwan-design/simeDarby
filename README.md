@@ -42,6 +42,7 @@ missing. The app's headline totals also include landed homes and car-park canopi
 | **Car-park canopies** | Surface car parks shown as proposed 4.5 m solar canopies |
 | **ROI calculator** | kWp, kWh/yr, CAPEX, savings, payback. Assumptions are editable and can be overridden from Supabase |
 | **Carbon tracker** | kWh × grid emission factor, per site and per township |
+| **Combined impact of any selection** | Click one site, Shift/Ctrl/⌘-click more (map or Top sites list), Shift-drag a box on the map, or *Select top 10*. The panel shows combined tCO₂/yr, kWp, MWh, CAPEX, savings, payback, share of the township and the multiple of SDP's 603 kWp, with CSV export |
 | **Engineering flags** | Too small, heavy shading, heritage/religious zoning review, strata approval, utility asset |
 | **Community micro-grids** | Arcs from high-surplus commercial roofs to nearby schools and clinics |
 | **Exportable shortlist** | Ranked CSV including data-quality columns; optionally saved to Supabase |
