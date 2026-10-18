@@ -15,21 +15,39 @@ export const DEFAULT_ASSUMPTIONS = {
   exportRate: 0.2, // RM/kWh credited for exported energy
   capexSmall: 4000, // RM per kWp, systems < 50 kWp
   capexLarge: 2800, // RM per kWp, systems >= 50 kWp
-  minKwp: 3
+  minKwp: 3,
+  // Opportunity-score weights (relative, normalised to 100 %); the "Score weights" sliders.
+  wGeneration: 40, // annual kWh (log scale)
+  wSelfUse: 25, // share of the generation the building can use itself
+  wPayback: 20, // simple payback
+  wShading: 15 // unshaded fraction from the raycast
 };
 
 // Context figures for impact comparisons.
 export const HOUSEHOLD_KWH_YR = 3000; // ~250 kWh/month per household
 export const SDP_EXISTING_KWP = 603; // SDP's installed rooftop PV (2024 Sustainability Highlights)
+// SDP's FY2021 Scope 1 + 2 footprint, the baseline of its 40 % cut by 2030: 25,150 t (Scope 1)
+// + 15,957 t (Scope 2) = 41,107 tCO2e, externally assured (Sustainability Report FY2021).
+// An Invest Malaysia 2023 deck quotes 14,743 tCO2e "operational carbon" for FY2021 on a
+// narrower boundary; we use the assured Scope 1 + 2 total.
+export const SDP_BASELINE_TCO2E = 41107;
+export const SDP_TARGET_CUT = 0.4;
 
 // Fraction of footprint usable for panels (setbacks, plant, pitch, orientation).
 const USABLE_FRACTION = {
   residential: 0.45, apartments: 0.4, retail: 0.65, commercial: 0.6,
   industrial: 0.75, institutional: 0.55, canopy: 0.8, carpark: 0.55, utility: 0.5, unknown: 0.5
 };
-// Base-load intensity proxy (kWh per m2 of floor area per year).
+// Base-load intensity proxy (kWh per m2 of floor area per year). Malaysian sources where we
+// found them; the rest are flagged assumptions (see docs/validation.md):
+// - commercial 220: Pusat Tenaga Malaysia audit, most Malaysian offices at 200-250 (MS 1525
+//   efficient benchmark 135)
+// - residential 30 / apartments 40: ~350 kWh/month per household (TNB worked example; ~80 % of
+//   households use < 600 kWh/month) over ~150 m2 landed / ~100 m2 apartment floor area
+// - retail 280: assumption, above the 262 average of a 41-mall Nordic study given tropical cooling
+// - industrial 250, institutional 100 (campus BEI < 135 per Energy Commission), unknown 80: assumptions
 const DEMAND_INTENSITY = {
-  residential: 45, apartments: 50, retail: 280, commercial: 220,
+  residential: 30, apartments: 40, retail: 280, commercial: 220,
   industrial: 250, institutional: 100, canopy: 0, carpark: 0, utility: 0, unknown: 80
 };
 // Share of demand that happens in daylight (can be met directly by PV).
@@ -71,6 +89,7 @@ export function buildSites(raw) {
       // Car parks found by the pipeline's vehicle detector carry tags.source = 'detected'.
       footprintSource: f.footprintSource ?? (f.tags.source === 'detected' ? 'AI-detected from imagery' : 'OpenStreetMap'),
       dataFlags: f.dataFlags ?? (f.tags.source === 'detected' ? ['detected_carpark'] : []),
+      sdpAsset: !!f.sdpAsset, // owned and operated by SDP: counts toward its own Scope 2
       shading: null
     };
   };
@@ -117,8 +136,9 @@ export function scoreSites(sites, a) {
     const genScore = clamp01((Math.log10(Math.max(kwh, 1)) - 3) / 4); // 1 MWh/yr -> 0, 10 GWh/yr -> 1
     const selfScore = kwh > 0 ? selfUse / kwh : 0;
     const payScore = clamp01((14 - payback) / 10);
+    const wSum = a.wGeneration + a.wSelfUse + a.wPayback + a.wShading || 1;
     const score =
-      100 * (0.4 * genScore + 0.25 * selfScore + 0.2 * payScore + 0.15 * shading) *
+      (100 * (a.wGeneration * genScore + a.wSelfUse * selfScore + a.wPayback * payScore + a.wShading * shading)) / wSum *
       (flags.includes('Too small') || s.category === 'utility' ? 0.3 : flags.length ? 0.8 : 1);
 
     Object.assign(s, {
@@ -176,7 +196,8 @@ export function toCSV(sites) {
     ['capex_rm', (s) => s.capex.toFixed(0)], ['annual_savings_rm', (s) => s.savings.toFixed(0)],
     ['payback_years', (s) => (Number.isFinite(s.payback) ? s.payback.toFixed(1) : '')],
     ['co2_tonnes_per_year', (s) => s.co2.toFixed(1)], ['score', (s) => s.score.toFixed(0)],
-    ['flags', (s) => s.flags.join('; ')], ['data_flags', (s) => s.dataFlags.join('; ')]
+    ['flags', (s) => s.flags.join('; ')], ['data_flags', (s) => s.dataFlags.join('; ')],
+    ['sdp_asset', (s) => (s.sdpAsset ? 'yes' : '')]
   ];
   const esc = (v) => (/[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : v);
   return [cols.map((c) => c[0]).join(','), ...sites.map((s, i) => cols.map(([, f]) => esc(f(s, i))).join(','))].join('\n');

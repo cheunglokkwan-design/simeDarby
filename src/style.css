@@ -46,6 +46,8 @@ button.small:hover { border-color: var(--accent); }
 .kpi .l { font-size: 11px; color: var(--muted); }
 .kpi.hero { grid-column: span 2; }
 .kpi.hero .v { color: var(--good); }
+.kpi.wide { grid-column: span 2; }
+.kpi.wide .v { color: var(--accent); }
 
 .legend { display: flex; flex-wrap: wrap; gap: 6px 10px; font-size: 11px; color: var(--muted); }
 .legend .bar { height: 8px; width: 100%; border-radius: 4px; }
@@ -77,6 +79,7 @@ footer a { color: var(--muted); }
 .flag.ok { background: rgba(85, 214, 138, 0.15); color: var(--good); }
 .flag.data { background: rgba(120, 170, 255, 0.14); color: #9cc0ff; }
 .actions { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+.sdp { margin-top: 6px; font-size: 12px; color: var(--accent); background: rgba(255, 201, 74, 0.12); border-radius: 4px; padding: 3px 6px; }
 .co2hero { margin-top: 8px; font-size: 22px; font-weight: 650; color: var(--good); font-variant-numeric: tabular-nums; }
 #detail table.totals td:last-child { white-space: nowrap; padding-left: 8px; }
 .sellist { margin: 10px 0 0; padding: 0; list-style: none; max-height: 180px; overflow-y: auto; font-size: 12px; }

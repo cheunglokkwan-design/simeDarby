@@ -9,10 +9,10 @@ Deadline: **11:59 PM, Fri 23 Oct 2026**. Target submission time: 6 PM.
 | 1. Data foundation | Sun 18 – Mon 19 AM | Pipeline | Every building with a height and a confidence flag | Done (spot-check pending) |
 | 2. Solar potential | Mon 19 | Pipeline | kWp and kWh per roof | Done (yield and emission factor still placeholders) |
 | 3. App skeleton | Mon 19 (parallel) | Web | Live URL with 3D buildings | Done: `solar-demo` merged and fed by the pipeline for 3 townships; Vercel deploy pending |
-| 4. Shading | Tue 20 | Pipeline + Web | Shading loss %, sun slider | |
-| 5. Demand and scoring | Tue 20 | Pipeline + Web | Ranked shortlist, CSV export | |
-| 6. Car parks and ESG | Wed 21 | Pipeline + Web | Car-park canopies, CO₂ tracker | |
-| 7. Validation | Wed 21 | Research | Accuracy numbers for the deck | |
+| 4. Shading | Tue 20 | Pipeline + Web | Shading loss %, sun slider | Done: 12 months, tower sanity tests |
+| 5. Demand and scoring | Tue 20 | Pipeline + Web | Ranked shortlist, CSV export | Done: weight sliders, sourced demand where possible |
+| 6. Car parks and ESG | Wed 21 | Pipeline + Web | Car-park canopies, CO₂ tracker | Done except the real detector run (needs hosts); SDP 2030 framing in |
+| 7. Validation | Wed 21 | Research | Accuracy numbers for the deck | Tooling done, sensitivity done; labels pending ([team-tasks](team-tasks.md)) |
 | 8. Freeze, pitch, video | Thu 22 | All | 10-slide deck, 5-min video | |
 | 9. Submit | Fri 23 | All | Submitted by 6 PM | |
 

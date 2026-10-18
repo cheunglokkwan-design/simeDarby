@@ -196,6 +196,10 @@ app_export:
     minor: canopy
     utility: utility
     unknown: unknown
+  # Buildings SDP owns and operates (retail assets in SDP's Business Segments overview), matched
+  # case-insensitively against the building's display name. Their solar counts directly toward
+  # SDP's own Scope 2; everything else is township (resident / business) impact.
+  sdp_assets: [Elmina Lakeside Mall, KL East Mall, KLGCC Mall]
   height_source_label:
     measured: Mapped height
     floors: Mapped floor count

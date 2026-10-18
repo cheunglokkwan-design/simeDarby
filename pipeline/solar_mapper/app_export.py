@@ -43,26 +43,28 @@ def _tag_dict(source_tags) -> dict:
 def export_buildings(sites: gpd.GeoDataFrame, cfg: dict) -> list[dict]:
     category = cfg["category"]
     label = cfg["height_source_label"]
+    sdp_assets = {n.lower() for n in cfg["sdp_assets"]}
     out = []
     for r in sites.itertuples(index=False):
-        out.append(
-            {
-                "id": r.id,
-                "polygon": _ring(r.geometry),
-                "tags": {"name": r.display_name},
-                "category": category[r.kind],
-                "kind": r.kind,
-                "kindSource": r.kind_source,
-                "height": r.height_m,
-                "levels": int(r.storeys),
-                "heightSource": label[r.height_source],
-                "heightConfidence": r.height_confidence,
-                "footprintM2": r.footprint_m2,
-                "footprintSource": r.source_dataset,
-                "dataFlags": [f for f in r.data_flags.split(";") if f],
-                "role": r.role,
-            }
-        )
+        b = {
+            "id": r.id,
+            "polygon": _ring(r.geometry),
+            "tags": {"name": r.display_name},
+            "category": category[r.kind],
+            "kind": r.kind,
+            "kindSource": r.kind_source,
+            "height": r.height_m,
+            "levels": int(r.storeys),
+            "heightSource": label[r.height_source],
+            "heightConfidence": r.height_confidence,
+            "footprintM2": r.footprint_m2,
+            "footprintSource": r.source_dataset,
+            "dataFlags": [f for f in r.data_flags.split(";") if f],
+            "role": r.role,
+        }
+        if r.display_name.lower() in sdp_assets:
+            b["sdpAsset"] = True
+        out.append(b)
     return out
 
 

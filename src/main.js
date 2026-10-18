@@ -8,8 +8,13 @@ import { makeProjector, pointInPolygon } from './geo.js';
 import { fetchOverpass } from './osm.js';
 import { CATEGORY_LABEL } from './heights.js';
 import {
-  DEFAULT_ASSUMPTIONS, HOUSEHOLD_KWH_YR, SDP_EXISTING_KWP, buildSites, scoreSites, microGridLinks, summarise, toCSV, isViable
+  DEFAULT_ASSUMPTIONS, HOUSEHOLD_KWH_YR, SDP_EXISTING_KWP, SDP_BASELINE_TCO2E, SDP_TARGET_CUT,
+  buildSites, scoreSites, microGridLinks, summarise, toCSV, isViable
 } from './solar.js';
+
+// The cut SDP has committed to: 40 % of its FY2021 Scope 1 + 2 footprint by 2030 (t CO2/yr).
+const SDP_TARGET_T = SDP_BASELINE_TCO2E * SDP_TARGET_CUT;
+const pctOfTarget = (t) => (t / SDP_TARGET_T) * 100;
 import { supabase, loadAssumptionOverrides, saveShortlist } from './supabase.js';
 
 const $ = (id) => document.getElementById(id);
@@ -302,7 +307,8 @@ function renderKPIs() {
     <div class="kpi"><div class="v">${fmt(k.kwp / 1000, 1)} MWp</div><div class="l">Solar potential (${fmt(k.count, 0)} sites)</div></div>
     <div class="kpi"><div class="v">${fmt(k.kwh / 1e6, 1)} GWh</div><div class="l">Generation per year</div></div>
     <div class="kpi"><div class="v">${fmt(homes, 0)}</div><div class="l">Homes' worth of electricity</div></div>
-    <div class="kpi"><div class="v">${fmt(k.carparkKwp / 1000, 1)} MWp</div><div class="l">From car park canopies</div></div>`;
+    <div class="kpi"><div class="v">${fmt(k.carparkKwp / 1000, 1)} MWp</div><div class="l">From car park canopies</div></div>
+    <div class="kpi wide"><div class="v">${fmt(k.co2 / SDP_TARGET_T, 1)}×</div><div class="l">SDP's 2030 commitment: cut ${fmt(SDP_TARGET_T / 1000, 1)} kt CO₂/yr (40% of its FY2021 Scope 1+2). This township's rooftop potential, for comparison</div></div>`;
 }
 
 function renderRanking() {
@@ -363,6 +369,7 @@ function renderSelectionSummary() {
   const town = summarise(state.sites);
   const left = sites.length - k.count;
   const payback = k.savings > 0 ? k.capex / k.savings : Infinity;
+  const sdpCo2 = sites.filter((s) => s.sdpAsset && isViable(s)).reduce((t, s) => t + s.co2, 0);
   const rows = [
     ['Solar potential', `${fmt(k.kwp, 0)} kWp`],
     ['Generation', `${fmt(k.kwh / 1000, 0)} MWh/yr`],
@@ -372,7 +379,9 @@ function renderSelectionSummary() {
     ['Annual savings', `RM ${fmt(k.savings, 0)}`],
     ['Payback (combined)', `${fmt(payback, 1)} years`],
     ['Share of township potential', `${fmt(town.co2 ? (k.co2 / town.co2) * 100 : 0, 1)} %`],
-    ["vs SDP's 603 kWp rooftop PV today", `${fmt(k.kwp / SDP_EXISTING_KWP, 1)}×`]
+    ["vs SDP's 603 kWp rooftop PV today", `${fmt(k.kwp / SDP_EXISTING_KWP, 1)}×`],
+    ["vs SDP's 2030 cut (16,443 t/yr)", `${fmt(pctOfTarget(k.co2), 1)} %`],
+    ...(sdpCo2 ? [['of which SDP-owned assets', `${fmt(sdpCo2, 0)} t · ${fmt(pctOfTarget(sdpCo2), 1)} %`]] : [])
   ];
   el.innerHTML = `<button class="close" aria-label="Clear selection">×</button>
     <h3>${sites.length} sites selected</h3>
@@ -474,6 +483,9 @@ function renderDetail() {
     <div class="sub">${s.id} · ${lat.toFixed(5)}, ${lon.toFixed(5)}</div>
     <div class="co2hero">${fmt(s.co2, 1)} t CO₂/yr</div>
     <div class="sub">avoided · ${fmt(s.kwp, 0)} kWp · ${fmt(s.kwh / 1000, 0)} MWh/yr · Shift+click more sites to combine</div>
+    ${s.sdpAsset
+      ? `<div class="sdp">SDP-owned asset: ${fmt(pctOfTarget(s.co2), 1)} % of SDP's 2030 cut, counted in its own Scope 2</div>`
+      : `<div class="sub">Equal to ${fmt(pctOfTarget(s.co2), 1)} % of the 16,443 t/yr cut SDP committed to by 2030 (township impact, not SDP's Scope 2)</div>`}
     <div>${s.flags.length ? s.flags.map((f) => `<span class="flag">${f}</span>`).join('') : '<span class="flag ok">Passes engineering checks</span>'}</div>
     ${s.dataFlags.length ? `<div>${s.dataFlags.map((f) => `<span class="flag data" title="Data quality">${DATA_FLAG_LABEL[f] ?? f}</span>`).join('')}</div>` : ''}
     <table>${rows.map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join('')}</table>
@@ -490,6 +502,28 @@ const DATA_FLAG_LABEL = {
   tag_overridden: 'Map tag overridden', ml_footprint: 'AI-traced outline', construction_zone: 'Construction zone',
   below_min_system: 'Below 3 kWp', detected_carpark: 'AI-detected car park (verify on site)'
 };
+
+const WEIGHTS = [
+  ['wGeneration', 'Generation'], ['wSelfUse', 'Self-consumption'], ['wPayback', 'Payback'], ['wShading', 'Sun exposure']
+];
+function weightPct(k) {
+  const sum = WEIGHTS.reduce((t, [w]) => t + state.assumptions[w], 0) || 1;
+  return Math.round((state.assumptions[k] / sum) * 100);
+}
+function renderWeights() {
+  $('weights').innerHTML = WEIGHTS.map(
+    ([k, l]) => `<label class="row">${l}<span data-pct="${k}">${weightPct(k)} %</span></label>
+      <input type="range" min="0" max="100" step="5" data-w="${k}" value="${state.assumptions[k]}" aria-label="${l} weight">`
+  ).join('');
+}
+// Update only the percentages while dragging (re-rendering the slider would drop the drag).
+$('weights').addEventListener('input', (e) => {
+  const k = e.target.dataset.w;
+  if (!k) return;
+  state.assumptions[k] = +e.target.value;
+  for (const [w] of WEIGHTS) $('weights').querySelector(`[data-pct="${w}"]`).textContent = `${weightPct(w)} %`;
+  recompute();
+});
 
 function renderAssumptions() {
   const labels = {
@@ -620,12 +654,14 @@ async function init() {
   bindControls();
   renderLegend();
   renderAssumptions();
+  renderWeights();
   if (supabase) {
     try {
       const o = await loadAssumptionOverrides();
       if (o && Object.keys(o).length) Object.assign(state.assumptions, o);
       $('db').textContent = ' · Assumptions from Supabase';
       renderAssumptions();
+      renderWeights();
     } catch {
       $('db').textContent = ' · Supabase connected (no assumptions table yet)';
     }

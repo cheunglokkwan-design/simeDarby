@@ -36,17 +36,37 @@ missing. The app's headline totals also include landed homes and car-park canopi
 | **Procedural 3D township** | Footprints extruded with deck.gl on a MapLibre basemap |
 | **Building type and height** | From the pipeline. Evidence used, strongest first: building tags, names (Malay and English), POIs, land use, footprint shape, size. Every building records which source it used and a confidence score (`pipeline/README.md`) |
 | **Data confidence view** | Colour by *Data confidence* (height and type mapped vs guessed) or *Footprint source* (people vs AI). The detail panel lists data-quality flags |
-| **Line-of-sight shading** | A Web Worker casts rays from each roof towards 40+ sun positions across the year, against neighbouring buildings (`src/shading.worker.js`) |
+| **Line-of-sight shading** | A Web Worker casts rays from each roof towards ~130 sun positions (the 21st of every month, hourly), against neighbouring buildings (`src/shading.js`). It is sanity-tested: a roof 5 m west of a 60 m tower keeps 63 % of its sun, an isolated roof 100 % |
 | **Live sun and shadows** | Month and time sliders drive deck.gl's sun light |
-| **Demand proxy and self-consumption** | Building type → base-load intensity and daytime share (`src/solar.js`) |
+| **Demand proxy and self-consumption** | Building type → base-load intensity (Malaysian sources where available, see [validation.md](docs/validation.md)) and daytime share (`src/solar.js`) |
+| **Adjustable scoring** | *Score weights* sliders (generation, self-consumption, payback, sun exposure) re-rank the shortlist live |
 | **Car-park canopies** | Surface car parks shown as proposed 4.5 m solar canopies: mapped ones from Overture, plus car parks found by a pretrained aerial **vehicle detector** (YOLO11-OBB on DOTA). Detected vehicles are drawn as evidence (`solar-mapper detect-carparks`) |
 | **ROI calculator** | kWp, kWh/yr, CAPEX, savings, payback. Assumptions are editable and can be overridden from Supabase |
-| **Carbon tracker** | kWh × grid emission factor, per site and per township |
+| **Carbon tracker** | kWh × the official grid factor (0.740 kg/kWh), per site, per selection and per township, each compared with SDP's 2030 commitment: a 16,443 t/yr cut (40 % of its FY2021 Scope 1+2). SDP-owned assets (e.g. Elmina Lakeside Mall: 17.6 % of that cut) are shown separately from township impact |
 | **Combined impact of any selection** | Click one site, Shift/Ctrl/⌘-click more (map or Top sites list), Shift-drag a box on the map, or *Select top 10*. The panel shows combined tCO₂/yr, kWp, MWh, CAPEX, savings, payback, share of the township and the multiple of SDP's 603 kWp, with CSV export |
 | **Engineering flags** | Too small, heavy shading, heritage/religious zoning review, strata approval, utility asset |
 | **Community micro-grids** | Arcs from high-surplus commercial roofs to nearby schools and clinics |
 | **Exportable shortlist** | Ranked CSV including data-quality columns; optionally saved to Supabase |
 | **3D micro-verification** | `splat.html`, a Gaussian splat viewer ([how to make your own](docs/splat-pipeline.md)) |
+
+## Validation
+
+[docs/validation.md](docs/validation.md) covers three checks:
+- **Ranking stability:** with any single assumption moved ±20 %, Elmina keeps ≥ 7 of its top 10, Ara
+  Damansara 10 of 10 and Bandar Bukit Raja ≥ 8 of 10 ([sensitivity.md](docs/sensitivity.md)).
+- **Blind shortlist labelling:** sheets are ready for a teammate or SDP mentor.
+- **Height spot-checks:** sheets are ready.
+
+Tasks that need a person (labels, PVOUT figures, Vercel, the detector run) are in
+[docs/team-tasks.md](docs/team-tasks.md).
+
+```bash
+npm test                 # shading and scoring tests (node --test)
+npm run rank             # each township's shortlist, same as the app -> data/processed/<id>/app_ranking.csv
+npm run sensitivity      # ±20 % stability -> docs/sensitivity.md
+npm run validation-sheet # blind labelling sheets (never overwrites filled ones)
+npm run validate         # score filled sheets: precision@10/@20 vs random
+```
 
 ## Run the app
 
