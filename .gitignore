@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+*.egg-info/
+
+# Raw downloads are re-creatable from Overture; processed outputs are committed
+data/raw/
+
+# Node / web
+node_modules/
+web/dist/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/

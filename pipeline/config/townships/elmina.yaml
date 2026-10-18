@@ -1,0 +1,26 @@
+# City of Elmina, Shah Alam (Sime Darby Property)
+name: City of Elmina
+slug: elmina
+state: Selangor
+
+# Pin the Overture Maps release so every teammate gets identical inputs.
+overture_release: "2026-09-23.1"
+
+# Download window (WGS84 lon/lat). Deliberately generous: the study boundary
+# below is derived inside it.
+bbox:
+  xmin: 101.47
+  xmax: 101.55
+  ymin: 3.14
+  ymax: 3.26
+
+# UTM zone 47N: metric CRS for areas and distances (101.5E falls in 96-102E).
+utm_epsg: 32647
+
+# There is no published township boundary in open data. We approximate it as the
+# union of Overture land-use polygons whose name contains "Elmina" (the township
+# outline, Elmina Crescent industrial, Elmina Business Park, neighbourhoods),
+# with interior holes filled. Replace with SDP's masterplan boundary when available.
+boundary:
+  name_pattern: elmina
+  buffer_m: 25

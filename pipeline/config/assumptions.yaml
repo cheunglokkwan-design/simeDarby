@@ -1,0 +1,136 @@
+# Every modelling constant in the pipeline lives here, next to its source or rationale.
+# Anything marked "team assumption" is a placeholder to be checked with an SDP mentor
+# or engineer before it appears in the pitch.
+
+buildings:
+  # Footprints below this are sheds, guard posts, kiosks or ML-footprint noise.
+  min_footprint_m2: 15
+  # A residential footprint at least this long (long side / short side of its minimum
+  # rotated rectangle) is treated as a terrace row rather than a single house.
+  terrace_min_elongation: 2.5
+  # Unknown-type footprints at or above this size are not assumed to be houses...
+  large_footprint_m2: 300
+  # ...except inside residential land use, where semi-detached pairs and bungalows
+  # in Elmina's landed precincts commonly have 300-500 m2 footprints.
+  house_max_m2_in_residential_area: 500
+  # Places (POIs) within this distance of a footprint count as "in" the building
+  # (POI points are often snapped just outside the outline).
+  place_snap_m: 3
+
+# Typical geometry per building kind, used when no height or floor count is mapped.
+# height = storeys * floor_to_floor_m + roof_m  (roof_m approximates pitched roof /
+# parapet / plant above the top slab, so the value is the shadow-casting height).
+# Team assumption, informed by common Malaysian building typologies:
+#   - landed homes in new townships are predominantly 2-storey terrace / semi-D / bungalow
+#   - shop-offices are typically 3-4 storeys with taller ground floors
+#   - industrial/warehouse units are single-volume sheds with ~10 m eaves
+kinds:
+  landed_house: {storeys: 2, floor_to_floor_m: 3.3, roof_m: 2.0}
+  apartment:    {storeys: 10, floor_to_floor_m: 3.0, roof_m: 2.0}
+  commercial:   {storeys: 3, floor_to_floor_m: 3.8, roof_m: 1.5}
+  retail:       {storeys: 3, floor_to_floor_m: 5.0, roof_m: 2.0}
+  industrial:   {storeys: 1, floor_to_floor_m: 10.0, roof_m: 1.5}
+  education:    {storeys: 3, floor_to_floor_m: 3.6, roof_m: 1.5}
+  religious:    {storeys: 1, floor_to_floor_m: 6.0, roof_m: 4.0}
+  civic:        {storeys: 2, floor_to_floor_m: 4.0, roof_m: 1.5}
+  medical:      {storeys: 3, floor_to_floor_m: 4.0, roof_m: 1.5}
+  transport:    {storeys: 3, floor_to_floor_m: 3.0, roof_m: 1.0}
+  sports:       {storeys: 1, floor_to_floor_m: 8.0, roof_m: 2.0}
+  minor:        {storeys: 1, floor_to_floor_m: 3.0, roof_m: 0.5}
+  unknown:      {storeys: 2, floor_to_floor_m: 4.0, roof_m: 1.5}
+
+# Overture building `class` (mostly OSM building=* values) -> kind.
+# "weak" classes are generic tags that a more specific land use may override.
+overture_class:
+  strong:
+    landed_house: [house, terrace, detached, semidetached_house, semi, bungalow, dwelling_house, stilt_house]
+    apartment: [apartments, dormitory]
+    commercial: [commercial, office, hotel]
+    retail: [retail, supermarket]
+    industrial: [industrial, warehouse, factory, manufacture, hangar]
+    education: [school, college, university, kindergarten]
+    religious: [religious, mosque, church, temple, chapel, cathedral, synagogue, monastery, shrine]
+    civic: [civic, government, public, library, fire_station, post_office]
+    medical: [hospital]
+    transport: [parking, train_station, transportation]
+    sports: [sports_centre, sports_hall, stadium, grandstand, pavilion]
+    minor: [shed, garage, garages, roof, shelter, storage_tank, carport, hut, toilets, guardhouse,
+            transformer_tower, kiosk, cabin, outbuilding, service, silo, greenhouse, glasshouse]
+  weak:
+    landed_house: [residential]
+
+# Overture building `subtype` -> kind, used only when `class` is missing.
+overture_subtype:
+  strong:
+    commercial: [commercial]
+    industrial: [industrial]
+    education: [education]
+    religious: [religious]
+    civic: [civic, military]
+    medical: [medical]
+    transport: [transportation]
+    sports: [entertainment]
+    minor: [outbuilding, service, agricultural]
+  weak:
+    landed_house: [residential]
+
+# Overture land_use `class` -> kind. The smallest containing polygon with a mapping wins,
+# so a mall's retail lot beats the township-wide residential outline. Classes not listed
+# (construction, brownfield, grass, ...) say nothing about the building and are skipped.
+land_use_class:
+  landed_house: [residential]
+  commercial: [commercial]
+  retail: [retail]
+  industrial: [industrial, works]
+  education: [school, college, university, kindergarten]
+  religious: [religious]
+  medical: [hospital, clinic]
+  sports: [stadium, sports_centre, recreation_ground]
+
+# Whole-word keywords (Malay and English, case-insensitive) in a building's name or in the
+# name of a land-use polygon whose class says nothing (e.g. a "construction" plot called
+# "Kanopi Residences").
+name_keywords:
+  education: [sekolah, school, sjk, sjkc, smk, sk, kolej, college, universiti, university, tadika, kindergarten]
+  religious: [masjid, surau, mosque, gereja, church, kuil, temple, tokong]
+  apartment: [residences, residence, residensi, pangsapuri, apartment, apartments, condominium, kondominium, condo]
+  retail: [mall, hypermarket, supermarket]
+  industrial: [kilang, factory, warehouse, gudang, data center, data centre, logistics]
+  medical: [hospital]
+  civic: [balai, dewan, polis, police, bomba]
+
+# Overture place `basic_category` -> kind. A single "specific" POI decides; generic
+# businesses need at least `min_commercial_places` (one shop in a house is a home business).
+places:
+  min_commercial_places: 2
+  specific:
+    retail: [shopping_mall, department_store, supermarket, hypermarket]
+    religious: [muslim_place_of_worship, hindu_place_of_worship, christian_place_of_worship,
+                buddhist_place_of_worship, sikh_place_of_worship, place_of_worship]
+    education: [school, high_school, elementary_school, college_university]
+    medical: [hospital]
+    industrial: [manufacturer, factory, warehouse]
+
+# How much to trust an estimated height, by where it came from.
+height_confidence:
+  measured: 0.9
+  floors: 0.7
+  type_rule:
+    overture_class: 0.5
+    overture_subtype: 0.45
+    building_name: 0.45
+    place: 0.4
+    land_use: 0.35
+    land_use_name: 0.35
+    land_use_shape: 0.3
+    overture_class_weak: 0.3
+    size: 0.2
+
+# Which buildings get the full analysis in later phases.
+candidates:
+  # Known non-residential (and apartment) roofs at least this big become candidates.
+  min_roof_m2: 100
+  # Landed homes are many small, individually owned roofs: report them as one
+  # aggregate "residential rooftop programme" figure instead of ranking each house.
+  programme_kinds: [landed_house]
+  excluded_kinds: [minor]

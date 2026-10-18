@@ -1,0 +1,103 @@
+{
+  "township": "City of Elmina",
+  "overture_release": "2026-09-23.1",
+  "boundary_area_km2": 21.09,
+  "footprints": {
+    "in_boundary": 2720,
+    "dropped_below_min_m2": 133,
+    "analysed": 2587
+  },
+  "by_source_dataset": {
+    "OpenStreetMap": 1247,
+    "Google Open Buildings": 1068,
+    "Microsoft ML Buildings": 272
+  },
+  "by_kind": {
+    "landed_house": 2164,
+    "industrial": 299,
+    "unknown": 31,
+    "minor": 25,
+    "retail": 20,
+    "commercial": 14,
+    "sports": 11,
+    "education": 10,
+    "religious": 7,
+    "apartment": 4,
+    "transport": 1,
+    "medical": 1
+  },
+  "by_kind_source": {
+    "land_use": 1303,
+    "overture_class": 1045,
+    "size": 127,
+    "land_use_shape": 87,
+    "land_use_name": 13,
+    "overture_subtype": 6,
+    "place": 5,
+    "building_name": 1
+  },
+  "by_height_source": {
+    "type_rule": 2537,
+    "floors": 50
+  },
+  "by_role": {
+    "residential_programme": 2164,
+    "excluded": 239,
+    "candidate": 184
+  },
+  "data_flags": {
+    "height_estimated": 2587,
+    "type_inferred": 1505,
+    "ml_footprint": 1340,
+    "construction_zone": 89,
+    "type_unknown": 31,
+    "tag_overridden": 20
+  },
+  "mean_height_confidence": 0.406,
+  "candidates": {
+    "count": 184,
+    "roof_m2": 260680,
+    "by_kind": {
+      "apartment": {
+        "count": 4,
+        "roof_m2": 10940
+      },
+      "commercial": {
+        "count": 11,
+        "roof_m2": 8815
+      },
+      "education": {
+        "count": 5,
+        "roof_m2": 12358
+      },
+      "industrial": {
+        "count": 109,
+        "roof_m2": 147036
+      },
+      "medical": {
+        "count": 1,
+        "roof_m2": 238
+      },
+      "religious": {
+        "count": 3,
+        "roof_m2": 1340
+      },
+      "retail": {
+        "count": 19,
+        "roof_m2": 48695
+      },
+      "transport": {
+        "count": 1,
+        "roof_m2": 4267
+      },
+      "unknown": {
+        "count": 31,
+        "roof_m2": 26990
+      }
+    }
+  },
+  "residential_programme": {
+    "buildings": 2164,
+    "roof_m2": 783050
+  }
+}
