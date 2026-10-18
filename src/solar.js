@@ -8,7 +8,7 @@ import { classify, estimateHeight, CATEGORY_LABEL } from './heights.js';
 export const DEFAULT_ASSUMPTIONS = {
   specificYield: 1350, // kWh per kWp per year, Klang Valley typical
   panelDensity: 0.18, // kWp per m2 of usable roof (incl. spacing)
-  emissionFactor: 0.758, // kg CO2 per kWh, Peninsular Malaysia grid
+  emissionFactor: 0.74, // kg CO2 per kWh: Suruhanjaya Tenaga GEF 2024, Peninsular Malaysia (provisional, Feb 2026)
   tariffResidential: 0.45, // RM/kWh avoided (effective)
   tariffCommercial: 0.5,
   tariffIndustrial: 0.42,
@@ -68,8 +68,9 @@ export function buildSites(raw) {
       ...h,
       kind: f.kind ?? null,
       kindSource: f.kindSource ?? (f.tags.building && f.tags.building !== 'yes' ? 'OSM building tag' : 'OSM tags / size'),
-      footprintSource: f.footprintSource ?? 'OpenStreetMap',
-      dataFlags: f.dataFlags ?? [],
+      // Car parks found by the pipeline's vehicle detector carry tags.source = 'detected'.
+      footprintSource: f.footprintSource ?? (f.tags.source === 'detected' ? 'AI-detected from imagery' : 'OpenStreetMap'),
+      dataFlags: f.dataFlags ?? (f.tags.source === 'detected' ? ['detected_carpark'] : []),
       shading: null
     };
   };

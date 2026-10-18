@@ -13,7 +13,7 @@ create table if not exists public.assumptions (
 insert into public.assumptions (key, value, unit, source) values
   ('specificYield', 1350, 'kWh/kWp/yr', 'Typical Klang Valley yield - verify'),
   ('panelDensity', 0.18, 'kWp/m2', 'Modern mono PERC incl. spacing'),
-  ('emissionFactor', 0.758, 'kg CO2/kWh', 'Peninsular grid factor - verify latest Suruhanjaya Tenaga value'),
+  ('emissionFactor', 0.740, 'kg CO2/kWh', 'Suruhanjaya Tenaga Grid Emission Factor 2024, Peninsular Malaysia (provisional, published 23 Feb 2026)'),
   ('tariffResidential', 0.45, 'RM/kWh', 'Placeholder - verify current TNB tariff'),
   ('tariffCommercial', 0.50, 'RM/kWh', 'Placeholder - verify current TNB tariff'),
   ('tariffIndustrial', 0.42, 'RM/kWh', 'Placeholder - verify current TNB tariff'),

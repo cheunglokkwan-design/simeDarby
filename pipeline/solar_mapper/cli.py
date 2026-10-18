@@ -11,6 +11,7 @@ import pandas as pd
 
 from .app_export import export_app
 from .boundary import write_boundary
+from .carpark_detect import run_detection
 from .buildings import run_phase1, write_outputs
 from .config import load_assumptions, load_township
 from .overture import download
@@ -45,6 +46,11 @@ def cmd_phase2(args) -> None:
     print(json.dumps(summary, indent=2))
 
 
+def cmd_detect_carparks(args) -> None:
+    summary = run_detection(load_township(args.township), max_chips=args.max_chips)
+    print(json.dumps(summary, indent=2))
+
+
 def cmd_export_app(args) -> None:
     export_app(load_township(args.township))
 
@@ -76,6 +82,11 @@ def main(argv: list[str] | None = None) -> None:
     p2 = sub.add_parser("phase2", help="solar potential (kWp, kWh) for every building")
     p2.add_argument("--township", default="elmina")
     p2.set_defaults(func=cmd_phase2)
+
+    dc = sub.add_parser("detect-carparks", help="find unmapped car parks from vehicles in aerial imagery")
+    dc.add_argument("--township", default="elmina")
+    dc.add_argument("--max-chips", type=int, default=None, help="only run the first N chips (quick test)")
+    dc.set_defaults(func=cmd_detect_carparks)
 
     ex = sub.add_parser("export-app", help="write public/data/<township>.json for the web app")
     ex.add_argument("--township", default="elmina")

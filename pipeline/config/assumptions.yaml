@@ -141,9 +141,11 @@ solar:
   panel_density_kwp_per_m2: 0.18
   # Systems smaller than this are flagged as not worth a feasibility study.
   min_system_kwp: 3
-  # kg CO2 avoided per kWh. Peninsular Malaysia grid placeholder: verify the latest
-  # Suruhanjaya Tenaga grid emission factor.
-  grid_emission_factor_kg_per_kwh: 0.758
+  # kg CO2 avoided per kWh. Suruhanjaya Tenaga (Energy Commission) Grid Emission Factor for
+  # Peninsular Malaysia, 2024: 0.740 Gg CO2e/GWh (= kg/kWh), provisional, published 23 Feb 2026
+  # (myenergystats.st.gov.my, "Grid Emission Factor (GEF) in Malaysia 2022-2024 (Provisional)").
+  # Generation-weighted average of all grid plants; 2023 was 0.760, 2022 0.769.
+  grid_emission_factor_kg_per_kwh: 0.740
   # Share of the footprint usable for panels after setbacks, plant, pitch and orientation.
   # Mapped from solar-demo's categories: residential, apartments, retail, commercial,
   # industrial, institutional (education, religious, civic, medical, transport, sports),
@@ -214,3 +216,29 @@ app_export:
     # already sits within this distance of them.
     building_kinds: [education, medical]
     dedupe_m: 50
+
+# Car-park detection from aerial imagery (`solar-mapper detect-carparks`, optional).
+carpark_detection:
+  # Any XYZ imagery tile server. Default: Esri World Imagery (check Esri's terms of use
+  # before relying on derived data beyond a prototype; SDP's own drone orthophotos can be
+  # served as XYZ tiles and used here instead).
+  tiles_url: https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}
+  zoom: 19              # ~0.3 m per pixel at 3 N: a car is ~15 px long
+  chip_tiles: 4         # chips of 4 x 4 tiles = 1024 px, the size the model was trained on
+  search_buffer_m: 80   # look for car parks within this distance of candidate roofs
+  # Ultralytics YOLO11 OBB pretrained on DOTA v1 (aerial imagery); weights download on first use.
+  # AGPL-3.0 (Ultralytics) and research-only DOTA data: fine for a prototype, license both for production.
+  model: yolo11s-obb.pt
+  vehicle_labels: [small vehicle, large vehicle]
+  min_confidence: 0.25
+  # Vehicles closer than this are linked into one lot (bridges a 6-7 m aisle between rows).
+  cluster_eps_m: 12
+  min_vehicles: 8
+  pad_m: 2              # grow the vehicle cluster to cover the bays
+  min_area_m2: 300
+  min_width_m: 12       # narrower than two rows of bays is roadside parking
+  # Lots where most vehicles sit within street_distance_m of a street centreline are street parking.
+  street_distance_m: 7
+  street_share_max: 0.6
+  # Lots overlapping an already-mapped car park by more than this share are not new.
+  mapped_overlap_max: 0.3

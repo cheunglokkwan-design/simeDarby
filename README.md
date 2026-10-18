@@ -39,7 +39,7 @@ missing. The app's headline totals also include landed homes and car-park canopi
 | **Line-of-sight shading** | A Web Worker casts rays from each roof towards 40+ sun positions across the year, against neighbouring buildings (`src/shading.worker.js`) |
 | **Live sun and shadows** | Month and time sliders drive deck.gl's sun light |
 | **Demand proxy and self-consumption** | Building type → base-load intensity and daytime share (`src/solar.js`) |
-| **Car-park canopies** | Surface car parks shown as proposed 4.5 m solar canopies |
+| **Car-park canopies** | Surface car parks shown as proposed 4.5 m solar canopies: mapped ones from Overture, plus car parks found by a pretrained aerial **vehicle detector** (YOLO11-OBB on DOTA). Detected vehicles are drawn as evidence (`solar-mapper detect-carparks`) |
 | **ROI calculator** | kWp, kWh/yr, CAPEX, savings, payback. Assumptions are editable and can be overridden from Supabase |
 | **Carbon tracker** | kWh × grid emission factor, per site and per township |
 | **Combined impact of any selection** | Click one site, Shift/Ctrl/⌘-click more (map or Top sites list), Shift-drag a box on the map, or *Select top 10*. The panel shows combined tCO₂/yr, kWp, MWh, CAPEX, savings, payback, share of the township and the multiple of SDP's 603 kWp, with CSV export |
@@ -92,13 +92,18 @@ never be exposed to the browser.
 
 ## Model assumptions
 
-All numbers are demo placeholders, shared by `DEFAULT_ASSUMPTIONS` (`src/solar.js`) and
-`pipeline/config/assumptions.yaml`. A test (`pipeline/tests/test_app_export.py`) keeps the two
-in sync. Before quoting results in the pitch, check them against:
-- PVGIS specific yield
-- current TNB tariffs
-- SEDA NEM 3.0 rules
-- the Suruhanjaya Tenaga grid emission factor
+Shared by `DEFAULT_ASSUMPTIONS` (`src/solar.js`) and `pipeline/config/assumptions.yaml`. A test
+(`pipeline/tests/test_app_export.py`) keeps the two in sync.
+
+| Assumption | Value | Status / where to get it |
+|---|---|---|
+| Grid emission factor | 0.740 kg CO₂/kWh | **Official**: Suruhanjaya Tenaga, Grid Emission Factor 2024, Peninsular Malaysia (provisional, published 23 Feb 2026), on myenergystats.st.gov.my |
+| Specific yield | 1,350 kWh/kWp/yr | Placeholder. Read *PVOUT* for each township at globalsolaratlas.info (World Bank / Solargis), or run PVGIS at re.jrc.ec.europa.eu/pvg_tools |
+| Tariffs, export credit | see app | Placeholder. TNB tariff schedule and SEDA NEM 3.0 rules |
+| CAPEX | see app | Placeholder. Get installer quotes or SEDA market data |
+
+If Supabase's `assumptions` table was created before 18 Oct, it still holds 0.758. Fix it with:
+`update public.assumptions set value = 0.740 where key = 'emissionFactor';`
 
 ## Data and credits
 

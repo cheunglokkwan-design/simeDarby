@@ -13,6 +13,9 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+# Car-park detection from imagery (solar-mapper detect-carparks). For a CPU-only PyTorch:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+detect = ["ultralytics>=8.3", "pillow>=10"]
 
 [project.scripts]
 solar-mapper = "solar_mapper.cli:main"

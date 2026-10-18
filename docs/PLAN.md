@@ -101,7 +101,10 @@ The pipeline's Phase 2 deliberately reuses its constants (`DEFAULT_ASSUMPTIONS`,
 ## 6. Car parks and ESG
 - Car-park polygons get a canopy kWp estimate.
 - CO₂ = MWh × the grid emission factor. Frame it against SDP's current 603 kWp and its 40% Scope 1 & 2 target.
-- The pretrained car detector (YOLOv8) is used only if Phases 1–5 are done by Wed noon.
+- **Built (18 Oct):** pretrained aerial vehicle detector (YOLO11-OBB, DOTA) → vehicle clusters → unmapped car parks (`solar-mapper detect-carparks`).
+  - Logic is tested with stand-in tiles and detections.
+  - A real run needs the imagery, weights and PyTorch hosts allowed (see `pipeline/README.md`).
+- **Grid factor now official:** 0.740 kg CO₂/kWh (Suruhanjaya Tenaga 2024, provisional). Specific yield is still a placeholder (Global Solar Atlas / PVGIS).
 
 ## 7. Validation
 - Hand-label 30–50 sites; if possible, a mentor ranks 10–20.

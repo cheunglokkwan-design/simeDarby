@@ -9,6 +9,7 @@ there, not in code.
 .venv/bin/solar-mapper phase1 --refresh                    # re-download Overture data
 .venv/bin/solar-mapper phase2                              # solar potential (needs phase1 output)
 .venv/bin/solar-mapper export-app                          # public/data/<township>.json for the web app
+.venv/bin/solar-mapper detect-carparks                     # optional: car parks from aerial imagery (needs [detect])
 .venv/bin/solar-mapper run --township ara-damansara        # all three steps
 .venv/bin/solar-mapper spotcheck-score                     # score the filled-in height check
 .venv/bin/pytest
@@ -151,22 +152,24 @@ usable roof = footprint × usable fraction for the kind (industrial 0.75, retail
               public buildings 0.55, unknown 0.50, landed homes 0.45, apartments 0.40)
 system kWp  = usable roof × 0.18 kWp/m²
 kWh/yr      = kWp × 1,350 kWh/kWp        (no shading yet: Phase 4 multiplies in the unshaded fraction)
-tCO₂/yr     = kWh × 0.758 kg/kWh ÷ 1000
+tCO₂/yr     = kWh × 0.740 kg/kWh ÷ 1000
 ```
 
 These are the same formula and the same values as the `solar-demo` app (`src/solar.js`), so
 both give identical numbers for the same roof. They are all placeholders. Before the pitch:
 - replace the 1,350 kWh/kWp yield with the PVGIS figure for Elmina;
-- replace the 0.758 kg/kWh factor with the latest Suruhanjaya Tenaga grid factor.
+- the grid factor is now official: 0.740 kg CO₂/kWh, Suruhanjaya Tenaga's Grid Emission Factor for
+  Peninsular Malaysia, 2024 (provisional, published 23 Feb 2026). It is a generation-weighted average of all
+  grid plants; quote it as "provisional" until it is finalised.
 
 ### Results: City of Elmina, before shading
 
 | | Roofs | kWp | MWh/yr | tCO₂/yr |
 |---|---|---|---|---|
-| **Candidates** | 183 | **30,902** | **41,717** | **31,622** |
-| of which industrial | 108 | 19,234 | 25,965 | 19,681 |
-| of which retail | 19 | 5,697 | 7,691 | 5,830 |
-| Residential programme (technical potential, all landed homes) | 2,164 | 63,437 | 85,627 | 64,904 |
+| **Candidates** | 183 | **30,902** | **41,717** | **30,871** |
+| of which industrial | 108 | 19,234 | 25,965 | 19,214 |
+| of which retail | 19 | 5,697 | 7,691 | 5,692 |
+| Residential programme (technical potential, all landed homes) | 2,164 | 63,437 | 85,627 | 63,364 |
 
 The candidates alone are **51× SDP's current 603 kWp** of rooftop PV.
 
@@ -184,3 +187,50 @@ Overall density works out at 7.4 m² of footprint per kWp on industrial roofs, w
 6–10 m²/kWp rule of thumb for flat roofs. The hand check also caught a "Water Balancing Tank"
 ranked 9th. Utility structures (tanks, reservoirs, substations) are now their own `utility`
 kind and are excluded.
+
+## Car-park detection from aerial imagery (optional)
+
+Open data maps very few car parks: Elmina has 5 qualifying ones and Bandar Bukit Raja 3.
+`solar_mapper/carpark_detect.py` finds the unmapped ones by detecting parked vehicles.
+
+1. **Search area:** ground within 80 m of candidate roofs (malls, factories, schools). Canopy-sized
+   car parks sit there; housing streets are skipped.
+2. **Imagery:** XYZ tiles at zoom 19 (~0.3 m/pixel), stitched into 1024 px chips.
+   - Default source: Esri World Imagery.
+   - Any tile server works, including SDP's own drone orthophotos.
+3. **Detection:** Ultralytics **YOLO11-OBB pretrained on DOTA v1**, an aerial-imagery dataset.
+   It uses the classes *small vehicle* and *large vehicle*. No training is needed.
+4. **Vehicles to car parks:** vehicles within 12 m of each other are linked; the cluster is padded 2 m and building roofs are removed. A cluster is dropped if:
+   - it has fewer than 8 vehicles;
+   - it is under 300 m² or narrower than 12 m;
+   - more than 60% of its vehicles are within 7 m of a street centreline (street parking);
+   - it overlaps an already-mapped car park by more than 30%.
+5. **Self-check:** the summary reports how many *mapped* car parks the detector found vehicles in.
+   This is a quick recall check for the pitch's evidence slide.
+
+```bash
+pip install torch --index-url https://download.pytorch.org/whl/cpu   # CPU-only PyTorch
+pip install -e ".[detect]"                                           # ultralytics + pillow
+.venv/bin/solar-mapper detect-carparks --township elmina --max-chips 5   # quick test
+.venv/bin/solar-mapper detect-carparks --township elmina                 # full run
+.venv/bin/solar-mapper export-app --township elmina                      # push results to the app
+```
+
+Outputs:
+- `data/processed/<township>/detected_carparks.geojson`
+- `detected_vehicles.geojson`
+- `carpark_detection_summary.json`
+
+`export-app` adds the detected car parks to the app as canopies, flagged *AI-detected car park
+(verify on site)*. It also draws the detected vehicles as small dots, as the evidence.
+
+Network needs: the imagery host (`server.arcgisonline.com`), GitHub release downloads for the
+weights (`github.com`, `objects.githubusercontent.com`, `release-assets.githubusercontent.com`)
+and, for CPU PyTorch, `download.pytorch.org`.
+
+Licences to settle before production:
+- Ultralytics is AGPL-3.0.
+- DOTA is research-only.
+- Esri's terms cover analysis of World Imagery.
+
+For production, run the same code on SDP's own drone orthophotos (Section 2 of the report).

@@ -64,6 +64,10 @@ map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'bott
 
 const overlay = new MapboxOverlay({ interleaved: false, layers: [], getTooltip });
 map.addControl(overlay);
+// Arcs and markers get their own overlay without the lighting effect: with the shadow
+// LightingEffect active, deck.gl 9.4 does not draw ArcLayer at all (nor answer picking).
+const annotations = new MapboxOverlay({ interleaved: false, layers: [], getTooltip: (info) => (info.object ? getTooltip(info) : null) });
+map.addControl(annotations);
 
 // ---------- colours ----------
 const RAMP = [[45, 30, 80], [130, 40, 110], [220, 80, 70], [250, 160, 50], [255, 230, 110]];
@@ -86,11 +90,12 @@ function confColor(t) {
   return CONF_STOPS[i].map((c, k) => Math.round(c + (CONF_STOPS[i + 1][k] - c) * f));
 }
 const SOURCE_COLOR = {
-  OpenStreetMap: [120, 170, 255], 'Google Open Buildings': [255, 190, 70], 'Microsoft ML Buildings': [190, 120, 255]
+  OpenStreetMap: [120, 170, 255], 'Google Open Buildings': [255, 190, 70], 'Microsoft ML Buildings': [190, 120, 255],
+  'AI-detected from imagery': [80, 230, 200]
 };
 const SOURCE_LABEL = {
   OpenStreetMap: 'OpenStreetMap (mapped by people)', 'Google Open Buildings': 'Google Open Buildings (AI-traced)',
-  'Microsoft ML Buildings': 'Microsoft ML Buildings (AI-traced)'
+  'Microsoft ML Buildings': 'Microsoft ML Buildings (AI-traced)', 'AI-detected from imagery': 'Car park found by AI vehicle detection'
 };
 
 function fillColor(s) {
@@ -183,8 +188,22 @@ function render() {
     })
   ];
 
+  const annotationLayers = [];
+  // Vehicles the pipeline detected in aerial imagery: the evidence behind AI-detected car parks.
+  if (state.carparks && state.raw.vehicles?.length) {
+    annotationLayers.push(
+      new ScatterplotLayer({
+        id: 'vehicles',
+        data: state.raw.vehicles,
+        getPosition: (d) => [d[0], d[1], 0.5],
+        getRadius: 1.4,
+        radiusMinPixels: 1,
+        getFillColor: [235, 240, 255, 210]
+      })
+    );
+  }
   if (state.microgrid && state.links.length) {
-    layers.push(
+    annotationLayers.push(
       new ArcLayer({
         id: 'microgrid',
         data: state.links,
@@ -194,8 +213,7 @@ function render() {
         getTargetColor: [80, 240, 170, 220],
         getWidth: 2.5,
         getHeight: 0.6,
-        pickable: true,
-        shadowEnabled: false // arcs floating over the ground must not cast shadows
+        pickable: true
       }),
       new ScatterplotLayer({
         id: 'community',
@@ -207,13 +225,13 @@ function render() {
         getLineColor: [10, 40, 30],
         stroked: true,
         lineWidthMinPixels: 1,
-        pickable: true,
-        shadowEnabled: false
+        pickable: true
       })
     );
   }
 
   overlay.setProps({ layers, effects: [lightingEffect()], onClick });
+  annotations.setProps({ layers: annotationLayers });
 }
 
 // deck.gl's GPU picking returns nothing while the shadow LightingEffect is on (deck.gl 9.4:
@@ -470,7 +488,7 @@ function renderDetail() {
 const DATA_FLAG_LABEL = {
   height_estimated: 'Height estimated', type_inferred: 'Type inferred', type_unknown: 'Type unknown',
   tag_overridden: 'Map tag overridden', ml_footprint: 'AI-traced outline', construction_zone: 'Construction zone',
-  below_min_system: 'Below 3 kWp'
+  below_min_system: 'Below 3 kWp', detected_carpark: 'AI-detected car park (verify on site)'
 };
 
 function renderAssumptions() {

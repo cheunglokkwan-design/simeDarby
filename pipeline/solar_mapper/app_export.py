@@ -14,7 +14,7 @@ from pathlib import Path
 
 import geopandas as gpd
 import pandas as pd
-from shapely.geometry import MultiPolygon
+from shapely.geometry import MultiPolygon, shape
 
 from .boundary import read_boundary
 from .config import REPO_ROOT, Township, load_assumptions
@@ -121,6 +121,28 @@ def export_community(
     return out
 
 
+def export_detected(processed_dir: Path) -> tuple[list[dict], list[list[float]]]:
+    """Car parks and vehicles found by `solar-mapper detect-carparks`, if it has been run."""
+    lots, vehicles = [], []
+    lots_path = processed_dir / "detected_carparks.geojson"
+    if lots_path.exists():
+        for i, f in enumerate(json.loads(lots_path.read_text())["features"]):
+            n = int(f["properties"]["vehicles"])
+            lots.append(
+                {
+                    "id": f"detected/{i}",
+                    "polygon": _ring(shape(f["geometry"])),
+                    "tags": {"name": f"Car park (AI-detected, {n} vehicles)", "source": "detected", "vehicles": n},
+                }
+            )
+    vehicles_path = processed_dir / "detected_vehicles.geojson"
+    if vehicles_path.exists():
+        for f in json.loads(vehicles_path.read_text())["features"]:
+            lon, lat = f["geometry"]["coordinates"]
+            vehicles.append([round(lon, 6), round(lat, 6)])
+    return lots, vehicles
+
+
 def export_app(township: Township, out_dir: Path = APP_DATA_DIR) -> Path:
     a = load_assumptions()["app_export"]
     utm = township.utm_epsg
@@ -129,21 +151,23 @@ def export_app(township: Township, out_dir: Path = APP_DATA_DIR) -> Path:
     infra = read_overture(township.raw_dir / "infrastructure.parquet", ["id", "class", "names", "source_tags"])
     places = read_overture(township.raw_dir / "places.parquet", ["id", "names", "basic_category"])
     places = places[places.geom_type == "Point"]
+    detected_lots, vehicles = export_detected(township.processed_dir)
     data = {
         "id": township.slug,
         "fetchedAt": township.overture_release[:10],
         "source": f"Overture Maps {township.overture_release} (OSM + Google + Microsoft footprints), solar-mapper pipeline",
         "pipeline": True,
         "buildings": export_buildings(sites, a),
-        "parking": export_carparks(infra, boundary_utm, utm, a["carparks"]),
+        "parking": export_carparks(infra, boundary_utm, utm, a["carparks"]) + detected_lots,
         "community": export_community(places, sites, boundary_utm, utm, a["community"]),
+        "vehicles": vehicles,
     }
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"{township.slug}.json"
     path.write_text(json.dumps(data, separators=(",", ":"), default=_json_default, allow_nan=False))
     log.info(
-        "wrote %s: %d buildings, %d car parks, %d community sites",
-        path, len(data["buildings"]), len(data["parking"]), len(data["community"]),
+        "wrote %s: %d buildings, %d car parks (%d AI-detected), %d community sites",
+        path, len(data["buildings"]), len(data["parking"]), len(detected_lots), len(data["community"]),
     )
     return path
 

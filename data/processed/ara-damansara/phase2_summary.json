@@ -3,7 +3,7 @@
   "assumptions": {
     "specific_yield_kwh_per_kwp": 1350,
     "panel_density_kwp_per_m2": 0.18,
-    "grid_emission_factor_kg_per_kwh": 0.758,
+    "grid_emission_factor_kg_per_kwh": 0.74,
     "shading": "not applied (Phase 4)"
   },
   "candidates": {
@@ -12,7 +12,7 @@
     "usable_roof_m2": 689153,
     "system_kwp": 124050,
     "mwh_yr_unshaded": 167464,
-    "co2_t_yr_unshaded": 126938,
+    "co2_t_yr_unshaded": 123924,
     "by_kind": {
       "apartment": {
         "buildings": 155,
@@ -20,7 +20,7 @@
         "usable_roof_m2": 131967,
         "system_kwp": 23754,
         "mwh_yr_unshaded": 32068,
-        "co2_t_yr_unshaded": 24307
+        "co2_t_yr_unshaded": 23730
       },
       "civic": {
         "buildings": 6,
@@ -28,7 +28,7 @@
         "usable_roof_m2": 5338,
         "system_kwp": 961,
         "mwh_yr_unshaded": 1297,
-        "co2_t_yr_unshaded": 983
+        "co2_t_yr_unshaded": 960
       },
       "commercial": {
         "buildings": 545,
@@ -36,7 +36,7 @@
         "usable_roof_m2": 251886,
         "system_kwp": 45340,
         "mwh_yr_unshaded": 61208,
-        "co2_t_yr_unshaded": 46396
+        "co2_t_yr_unshaded": 45294
       },
       "education": {
         "buildings": 47,
@@ -44,7 +44,7 @@
         "usable_roof_m2": 22814,
         "system_kwp": 4106,
         "mwh_yr_unshaded": 5544,
-        "co2_t_yr_unshaded": 4202
+        "co2_t_yr_unshaded": 4102
       },
       "industrial": {
         "buildings": 64,
@@ -52,7 +52,7 @@
         "usable_roof_m2": 33527,
         "system_kwp": 6035,
         "mwh_yr_unshaded": 8147,
-        "co2_t_yr_unshaded": 6175
+        "co2_t_yr_unshaded": 6029
       },
       "medical": {
         "buildings": 8,
@@ -60,7 +60,7 @@
         "usable_roof_m2": 5936,
         "system_kwp": 1068,
         "mwh_yr_unshaded": 1442,
-        "co2_t_yr_unshaded": 1093
+        "co2_t_yr_unshaded": 1067
       },
       "religious": {
         "buildings": 23,
@@ -68,7 +68,7 @@
         "usable_roof_m2": 12185,
         "system_kwp": 2193,
         "mwh_yr_unshaded": 2961,
-        "co2_t_yr_unshaded": 2245
+        "co2_t_yr_unshaded": 2191
       },
       "retail": {
         "buildings": 501,
@@ -76,7 +76,7 @@
         "usable_roof_m2": 132605,
         "system_kwp": 23870,
         "mwh_yr_unshaded": 32223,
-        "co2_t_yr_unshaded": 24425
+        "co2_t_yr_unshaded": 23845
       },
       "sports": {
         "buildings": 12,
@@ -84,7 +84,7 @@
         "usable_roof_m2": 2436,
         "system_kwp": 439,
         "mwh_yr_unshaded": 592,
-        "co2_t_yr_unshaded": 449
+        "co2_t_yr_unshaded": 438
       },
       "transport": {
         "buildings": 8,
@@ -92,7 +92,7 @@
         "usable_roof_m2": 7680,
         "system_kwp": 1383,
         "mwh_yr_unshaded": 1866,
-        "co2_t_yr_unshaded": 1415
+        "co2_t_yr_unshaded": 1381
       },
       "unknown": {
         "buildings": 192,
@@ -100,7 +100,7 @@
         "usable_roof_m2": 82780,
         "system_kwp": 14900,
         "mwh_yr_unshaded": 20116,
-        "co2_t_yr_unshaded": 15248
+        "co2_t_yr_unshaded": 14885
       }
     },
     "multiple_of_sdp_existing_rooftop_pv": 205.7
@@ -111,7 +111,7 @@
     "usable_roof_m2": 396993,
     "system_kwp": 71456,
     "mwh_yr_unshaded": 96469,
-    "co2_t_yr_unshaded": 73124
+    "co2_t_yr_unshaded": 71387
   },
   "below_min_system": 887,
   "top_candidates": [

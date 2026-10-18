@@ -25,7 +25,7 @@ def test_formula_matches_solar_demo(a):
     assert r.usable_roof_m2 == 7500
     assert r.system_kwp == pytest.approx(1350.0)  # 7500 m2 * 0.18 kWp/m2
     assert r.kwh_yr_unshaded == pytest.approx(1_822_500)  # 1350 kWp * 1350 kWh/kWp
-    assert r.co2_t_yr_unshaded == pytest.approx(1381.46, abs=0.01)  # * 0.758 kg/kWh / 1000
+    assert r.co2_t_yr_unshaded == pytest.approx(1348.65, abs=0.01)  # * 0.740 kg/kWh / 1000
 
 
 def test_every_kind_has_a_usable_fraction(a):
