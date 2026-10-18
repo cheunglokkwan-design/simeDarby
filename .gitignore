@@ -10,7 +10,13 @@ data/raw/
 
 # Node / web
 node_modules/
-web/dist/
+dist/
+*.log
+
+# Secrets: only .env.example is committed
+.env
+.env.local
+.env.*.local
 
 # OS / editor
 .DS_Store
