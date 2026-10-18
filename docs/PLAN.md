@@ -7,14 +7,45 @@ Deadline: **11:59 PM, Fri 23 Oct 2026**. Target submission time: 6 PM.
 |---|---|---|---|---|
 | 0. Setup | Sun 18 | All | Repo skeleton, config, boundary | Done |
 | 1. Data foundation | Sun 18 – Mon 19 AM | Pipeline | Every building with a height and a confidence flag | Done (spot-check pending) |
-| 2. Solar potential | Mon 19 | Pipeline | kWp and kWh per roof | |
-| 3. App skeleton | Mon 19 (parallel) | Web | Live URL with 3D buildings | |
+| 2. Solar potential | Mon 19 | Pipeline | kWp and kWh per roof | Done (yield and emission factor still placeholders) |
+| 3. App skeleton | Mon 19 (parallel) | Web | Live URL with 3D buildings | Largely exists on `solar-demo` |
 | 4. Shading | Tue 20 | Pipeline + Web | Shading loss %, sun slider | |
 | 5. Demand and scoring | Tue 20 | Pipeline + Web | Ranked shortlist, CSV export | |
 | 6. Car parks and ESG | Wed 21 | Pipeline + Web | Car-park canopies, CO₂ tracker | |
 | 7. Validation | Wed 21 | Research | Accuracy numbers for the deck | |
 | 8. Freeze, pitch, video | Thu 22 | All | 10-slide deck, 5-min video | |
 | 9. Submit | Fri 23 | All | Submitted by 6 PM | |
+
+## Existing work on the `solar-demo` branch
+
+A teammate's JavaScript demo (Vite + deck.gl + MapLibre, all computed in the browser from
+OpenStreetMap via Overpass) already covers much of Phases 3–6, for **Ara Damansara** and
+**Bandar Bukit Raja**:
+- 3D extrusion with OSM-tag height estimates
+- a shading Web Worker (4 days × hourly sun positions, 3 sample points per roof)
+- sun and shadow sliders
+- a demand proxy and self-consumption ratio
+- car-park canopies
+- ROI and payback, with editable assumptions overridable from Supabase
+- CO₂ per site and per township
+- engineering flags and community micro-grid arcs
+- a CSV shortlist
+- a Gaussian-splat viewer
+
+The pipeline's Phase 2 deliberately reuses its constants (`DEFAULT_ASSUMPTIONS`,
+`USABLE_FRACTION`), so the numbers agree.
+
+| | `solar-demo` (JS, in browser) | `pipeline/` (Python, offline) |
+|---|---|---|
+| Townships | Ara Damansara, Bandar Bukit Raja | City of Elmina |
+| Footprints | OSM only | OSM + Google + Microsoft (Overture), so ML footprints fill OSM gaps |
+| Building type | OSM tags, then footprint size | Tags, names (Malay and English), POIs, land use, shape, size, each with its source |
+| Heights | tag, then levels, then type default | Same cascade, plus a confidence score per building |
+| Data-quality flags | Engineering flags | Data provenance flags (ML footprint, type inferred, construction zone, ...) |
+
+**Open decision:**
+- Option 1: keep `solar-demo` as the front end and feed it pipeline output (e.g. an Elmina layer), replacing the planned `web/` app.
+- Option 2: keep the two separate.
 
 ## 0. Setup
 - Monorepo: `pipeline/`, `web/`, `docs/`.

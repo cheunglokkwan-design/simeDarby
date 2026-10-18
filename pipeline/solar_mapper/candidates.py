@@ -10,7 +10,7 @@ EXCLUDED = "excluded"
 def assign_role(kind: str, roof_m2: float, rules: dict) -> tuple[str, str]:
     """Return (role, reason). ``rules`` is the ``candidates`` block of assumptions.yaml."""
     if kind in rules["excluded_kinds"]:
-        return EXCLUDED, "minor_structure"
+        return EXCLUDED, f"{kind}_structure"
     if kind in rules["programme_kinds"]:
         return PROGRAMME, ""
     if roof_m2 < rules["min_roof_m2"]:

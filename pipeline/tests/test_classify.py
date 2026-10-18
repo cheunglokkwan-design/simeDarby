@@ -77,6 +77,8 @@ def test_size_fallback(rules):
         ("Pangsapuri Harmoni Elmina", "apartment"),
         ("Google Data Center, Elmina Business Park 1A", "industrial"),
         ("Elmina Lakeside Mall", "retail"),
+        ("Water Balancing Tank", "utility"),
+        ("Alpha Tanks Solutions Sdn Bhd", None),  # a business, not a tank
         ("Skechers Elmina Lakeside", None),  # 'sk' must match whole words only
         ("Elmina Gardens", None),
         (None, None),

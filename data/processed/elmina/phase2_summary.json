@@ -1,0 +1,193 @@
+{
+  "township": "City of Elmina",
+  "assumptions": {
+    "specific_yield_kwh_per_kwp": 1350,
+    "panel_density_kwp_per_m2": 0.18,
+    "grid_emission_factor_kg_per_kwh": 0.758,
+    "shading": "not applied (Phase 4)"
+  },
+  "candidates": {
+    "buildings": 183,
+    "roof_m2": 256113,
+    "usable_roof_m2": 171675,
+    "system_kwp": 30902,
+    "mwh_yr_unshaded": 41717,
+    "co2_t_yr_unshaded": 31622,
+    "by_kind": {
+      "apartment": {
+        "buildings": 4,
+        "roof_m2": 10940,
+        "usable_roof_m2": 4376,
+        "system_kwp": 788,
+        "mwh_yr_unshaded": 1063,
+        "co2_t_yr_unshaded": 806
+      },
+      "commercial": {
+        "buildings": 11,
+        "roof_m2": 8815,
+        "usable_roof_m2": 5289,
+        "system_kwp": 952,
+        "mwh_yr_unshaded": 1285,
+        "co2_t_yr_unshaded": 974
+      },
+      "education": {
+        "buildings": 5,
+        "roof_m2": 12358,
+        "usable_roof_m2": 6797,
+        "system_kwp": 1223,
+        "mwh_yr_unshaded": 1652,
+        "co2_t_yr_unshaded": 1252
+      },
+      "industrial": {
+        "buildings": 108,
+        "roof_m2": 142469,
+        "usable_roof_m2": 106851,
+        "system_kwp": 19234,
+        "mwh_yr_unshaded": 25965,
+        "co2_t_yr_unshaded": 19681
+      },
+      "medical": {
+        "buildings": 1,
+        "roof_m2": 238,
+        "usable_roof_m2": 131,
+        "system_kwp": 24,
+        "mwh_yr_unshaded": 32,
+        "co2_t_yr_unshaded": 24
+      },
+      "religious": {
+        "buildings": 3,
+        "roof_m2": 1340,
+        "usable_roof_m2": 737,
+        "system_kwp": 133,
+        "mwh_yr_unshaded": 179,
+        "co2_t_yr_unshaded": 136
+      },
+      "retail": {
+        "buildings": 19,
+        "roof_m2": 48695,
+        "usable_roof_m2": 31652,
+        "system_kwp": 5697,
+        "mwh_yr_unshaded": 7691,
+        "co2_t_yr_unshaded": 5830
+      },
+      "transport": {
+        "buildings": 1,
+        "roof_m2": 4267,
+        "usable_roof_m2": 2347,
+        "system_kwp": 422,
+        "mwh_yr_unshaded": 570,
+        "co2_t_yr_unshaded": 432
+      },
+      "unknown": {
+        "buildings": 31,
+        "roof_m2": 26990,
+        "usable_roof_m2": 13495,
+        "system_kwp": 2429,
+        "mwh_yr_unshaded": 3279,
+        "co2_t_yr_unshaded": 2486
+      }
+    },
+    "multiple_of_sdp_existing_rooftop_pv": 51.2
+  },
+  "residential_programme": {
+    "buildings": 2164,
+    "roof_m2": 783050,
+    "usable_roof_m2": 352372,
+    "system_kwp": 63437,
+    "mwh_yr_unshaded": 85627,
+    "co2_t_yr_unshaded": 64904
+  },
+  "below_min_system": 460,
+  "top_candidates": [
+    {
+      "id": "bfe49e58-67d7-475a-9357-e75fe04e8864",
+      "name": "Industrial in Google Data Center, Elmina Business Park 1A",
+      "kind": "industrial",
+      "roof_m2": 28552,
+      "system_kwp": 3854.5,
+      "mwh_yr_unshaded": 5203.6,
+      "data_flags": "height_estimated;construction_zone"
+    },
+    {
+      "id": "820057c2-dc83-439d-87b6-b200eb832208",
+      "name": "Elmina Lakeside Mall",
+      "kind": "retail",
+      "roof_m2": 24775,
+      "system_kwp": 2898.7,
+      "mwh_yr_unshaded": 3913.3,
+      "data_flags": "height_estimated;type_inferred"
+    },
+    {
+      "id": "effbf25a-1ae2-41fb-ba80-5770f9d2e857",
+      "name": "Chye Keong Hardware Trading Sdn Bhd",
+      "kind": "industrial",
+      "roof_m2": 13405,
+      "system_kwp": 1809.7,
+      "mwh_yr_unshaded": 2443.0,
+      "data_flags": "height_estimated"
+    },
+    {
+      "id": "4ab57fce-021d-4be3-884f-a8b8aeb6e398",
+      "name": "Industrial in Elmina Crescent",
+      "kind": "industrial",
+      "roof_m2": 7407,
+      "system_kwp": 999.9,
+      "mwh_yr_unshaded": 1349.9,
+      "data_flags": "height_estimated"
+    },
+    {
+      "id": "71f822b6-11fe-4a0c-98f2-8f86c5c30c87",
+      "name": "Industrial in Elmina Crescent",
+      "kind": "industrial",
+      "roof_m2": 6894,
+      "system_kwp": 930.6,
+      "mwh_yr_unshaded": 1256.3,
+      "data_flags": "height_estimated"
+    },
+    {
+      "id": "d0c1ebc5-a53e-4609-bb19-7a4764ea4810",
+      "name": "Industrial in Elmina Crescent",
+      "kind": "industrial",
+      "roof_m2": 5570,
+      "system_kwp": 751.9,
+      "mwh_yr_unshaded": 1015.1,
+      "data_flags": "height_estimated"
+    },
+    {
+      "id": "2d41cd63-7f7c-46ae-8e51-5a4c5fe024d9",
+      "name": "Industrial in Google Data Center, Elmina Business Park 1A",
+      "kind": "industrial",
+      "roof_m2": 4733,
+      "system_kwp": 639.0,
+      "mwh_yr_unshaded": 862.6,
+      "data_flags": "height_estimated;type_inferred;construction_zone"
+    },
+    {
+      "id": "2f7dd74a-0ca8-4eda-bfcf-56822b302469",
+      "name": "Elmina Sales Gallery",
+      "kind": "retail",
+      "roof_m2": 5433,
+      "system_kwp": 635.7,
+      "mwh_yr_unshaded": 858.2,
+      "data_flags": "height_estimated;type_inferred"
+    },
+    {
+      "id": "9c0a1e8c-a1c0-436c-b60a-2c0bee8f635f",
+      "name": "Industrial in Elmina Crescent",
+      "kind": "industrial",
+      "roof_m2": 4415,
+      "system_kwp": 596.0,
+      "mwh_yr_unshaded": 804.6,
+      "data_flags": "height_estimated"
+    },
+    {
+      "id": "d7e68d37-2ebf-40e3-8eba-b38131068ee5",
+      "name": "Pet Lovers Centre - Malaysia HQ",
+      "kind": "industrial",
+      "roof_m2": 3639,
+      "system_kwp": 491.3,
+      "mwh_yr_unshaded": 663.2,
+      "data_flags": "height_estimated;type_inferred;ml_footprint"
+    }
+  ]
+}

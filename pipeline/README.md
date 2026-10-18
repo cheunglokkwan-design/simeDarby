@@ -7,6 +7,7 @@ there, not in code.
 ```bash
 .venv/bin/solar-mapper phase1 --township elmina            # build everything for Phase 1
 .venv/bin/solar-mapper phase1 --refresh                    # re-download Overture data
+.venv/bin/solar-mapper phase2                              # solar potential (needs phase1 output)
 .venv/bin/solar-mapper spotcheck-score                     # score the filled-in height check
 .venv/bin/pytest
 ```
@@ -41,7 +42,7 @@ there, not in code.
 6. **Role**:
    - `candidate`: non-residential, apartment or unknown roofs of at least 100 m². These get the full analysis.
    - `residential_programme`: landed homes, reported only as one aggregate figure.
-   - `excluded`: minor structures and small roofs.
+   - `excluded`: minor structures, utility assets (tanks, reservoirs, substations) and small roofs.
 
 ## Phase 1 results: City of Elmina
 
@@ -50,7 +51,7 @@ there, not in code.
 | Footprints analysed | 2,587 (133 under 15 m² dropped) |
 | Footprint sources | OSM 1,247 · Google 1,068 · Microsoft 272 |
 | Mapped height | **0**. Floor count for 50 (2%); the rest use type rules |
-| Candidates | **184 roofs, 260,680 m²** (industrial 109 / 147k m², retail 19 / 49k m², unknown 31 / 27k m²) |
+| Candidates | **183 roofs, 256,113 m²** (industrial 108 / 142k m², retail 19 / 49k m², unknown 31 / 27k m²) |
 | Residential programme | 2,164 landed buildings, 783,050 m² of footprint (terrace rows count as one building) |
 | Mean height confidence | 0.41 overall, 0.38 for candidates |
 
@@ -67,9 +68,11 @@ Full numbers: [`data/processed/elmina/phase1_summary.json`](../data/processed/el
 
 | File | What |
 |---|---|
-| `buildings.parquet` / `buildings.geojson` | one row per footprint, EPSG:4326 |
+| `buildings.parquet` | Phase 1: one row per footprint, EPSG:4326 |
 | `phase1_summary.json` | counts by source, kind, height source, role, flag |
 | `spotcheck_heights.csv` | 20 buildings to verify on Street View |
+| `sites.parquet` / `sites.geojson` | Phase 2: every Phase 1 column plus the solar columns (load this one in the app) |
+| `phase2_summary.json` | kWp, MWh and tCO₂ totals by role and kind, plus the top 10 candidates |
 
 Key columns:
 
@@ -80,6 +83,8 @@ Key columns:
 | `role`, `role_reason` | candidate, residential programme or excluded, and why |
 | `data_flags` | semicolon-separated data-quality flags |
 | `land_use_name`, `place_names` | context for the detail panel |
+| `display_name` | building name, else first place, else "<kind> in <land use>" (Phase 2) |
+| `usable_roof_m2`, `system_kwp`, `kwh_yr_unshaded`, `co2_t_yr_unshaded` | solar potential before shading (Phase 2) |
 
 ### Data flags
 
@@ -93,6 +98,7 @@ These are shown next to each site in the app:
 | `tag_overridden` | a generic tag lost to stronger evidence |
 | `ml_footprint` | outline traced by Google's or Microsoft's ML models, not a mapper |
 | `construction_zone` | inside a construction plot, so the building may have changed |
+| `below_min_system` | fits less than 3 kWp, not worth a feasibility study (Phase 2) |
 
 ### Exit check: Street View spot-check (needs a teammate)
 
@@ -113,3 +119,46 @@ unless you pass `--new-spotcheck`.
   datasets split it into units.
 - **31 candidates are still `unknown`.** These are large, compact buildings in residential
   areas (clubhouses, apartment blocks?). Phase 5 refines types using places and demand.
+
+## Phase 2: solar potential
+
+`solar_mapper/solar.py`, constants in the `solar` block of `assumptions.yaml`:
+
+```
+usable roof = footprint × usable fraction for the kind (industrial 0.75, retail 0.65, commercial 0.60,
+              public buildings 0.55, unknown 0.50, landed homes 0.45, apartments 0.40)
+system kWp  = usable roof × 0.18 kWp/m²
+kWh/yr      = kWp × 1,350 kWh/kWp        (no shading yet: Phase 4 multiplies in the unshaded fraction)
+tCO₂/yr     = kWh × 0.758 kg/kWh ÷ 1000
+```
+
+These are the same formula and the same values as the `solar-demo` app (`src/solar.js`), so
+both give identical numbers for the same roof. They are all placeholders. Before the pitch:
+- replace the 1,350 kWh/kWp yield with the PVGIS figure for Elmina;
+- replace the 0.758 kg/kWh factor with the latest Suruhanjaya Tenaga grid factor.
+
+### Results: City of Elmina, before shading
+
+| | Roofs | kWp | MWh/yr | tCO₂/yr |
+|---|---|---|---|---|
+| **Candidates** | 183 | **30,902** | **41,717** | **31,622** |
+| of which industrial | 108 | 19,234 | 25,965 | 19,681 |
+| of which retail | 19 | 5,697 | 7,691 | 5,830 |
+| Residential programme (technical potential, all landed homes) | 2,164 | 63,437 | 85,627 | 64,904 |
+
+The candidates alone are **51× SDP's current 603 kWp** of rooftop PV.
+
+### Hand check of the top 5 (Phase 2 exit check)
+
+| Site | Roof m² | × usable | × 0.18 = kWp | × 1,350 = MWh/yr | Sense check |
+|---|---|---|---|---|---|
+| Google data centre plot, Elmina Business Park 1A | 28,552 | 0.75 | 3,854 | 5,204 | Under construction (`construction_zone`); cooling plant will cut usable roof, but data-centre demand would absorb all of it |
+| Elmina Lakeside Mall | 24,775 | 0.65 | 2,899 | 3,913 | Same order as large Malaysian mall rooftop systems (1–3 MWp); roof car parks/plant may lower 0.65 |
+| Chye Keong Hardware warehouse, Elmina Crescent | 13,405 | 0.75 | 1,810 | 2,443 | Single-volume warehouse: ideal flat/low-pitch roof |
+| Factory, Elmina Crescent | 7,407 | 0.75 | 1,000 | 1,350 | Typical 1 MWp industrial rooftop |
+| Factory, Elmina Crescent | 6,894 | 0.75 | 931 | 1,256 | As above |
+
+Overall density works out at 7.4 m² of footprint per kWp on industrial roofs, within the usual
+6–10 m²/kWp rule of thumb for flat roofs. The hand check also caught a "Water Balancing Tank"
+ranked 9th. Utility structures (tanks, reservoirs, substations) are now their own `utility`
+kind and are excluded.

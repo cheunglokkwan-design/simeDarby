@@ -37,6 +37,7 @@ kinds:
   transport:    {storeys: 3, floor_to_floor_m: 3.0, roof_m: 1.0}
   sports:       {storeys: 1, floor_to_floor_m: 8.0, roof_m: 2.0}
   minor:        {storeys: 1, floor_to_floor_m: 3.0, roof_m: 0.5}
+  utility:      {storeys: 1, floor_to_floor_m: 6.0, roof_m: 0.5}
   unknown:      {storeys: 2, floor_to_floor_m: 4.0, roof_m: 1.5}
 
 # Overture building `class` (mostly OSM building=* values) -> kind.
@@ -54,8 +55,9 @@ overture_class:
     medical: [hospital]
     transport: [parking, train_station, transportation]
     sports: [sports_centre, sports_hall, stadium, grandstand, pavilion]
-    minor: [shed, garage, garages, roof, shelter, storage_tank, carport, hut, toilets, guardhouse,
-            transformer_tower, kiosk, cabin, outbuilding, service, silo, greenhouse, glasshouse]
+    minor: [shed, garage, garages, roof, shelter, carport, hut, toilets, guardhouse,
+            kiosk, cabin, outbuilding, silo, greenhouse, glasshouse]
+    utility: [storage_tank, transformer_tower, service, water_tower, digester]
   weak:
     landed_house: [residential]
 
@@ -98,6 +100,7 @@ name_keywords:
   industrial: [kilang, factory, warehouse, gudang, data center, data centre, logistics]
   medical: [hospital]
   civic: [balai, dewan, polis, police, bomba]
+  utility: [tank, tangki, reservoir, takungan, substation, pencawang, pump house, rumah pam]
 
 # Overture place `basic_category` -> kind. A single "specific" POI decides; generic
 # businesses need at least `min_commercial_places` (one shop in a house is a home business).
@@ -126,6 +129,43 @@ height_confidence:
     overture_class_weak: 0.3
     size: 0.2
 
+# Phase 2: solar potential. Values match DEFAULT_ASSUMPTIONS and USABLE_FRACTION in the
+# solar-demo app (src/solar.js) so the pipeline and the demo give identical numbers for the
+# same roof. All are placeholders to verify before quoting in the pitch.
+solar:
+  # kWh generated per kWp per year, before shading (Phase 4 applies shading).
+  # "Klang Valley typical" placeholder. Replace with the PVGIS value for Elmina
+  # (3.19 N, 101.51 E): re.jrc.ec.europa.eu is blocked from the cloud environment.
+  specific_yield_kwh_per_kwp: 1350
+  # kWp installed per m2 of usable roof, including row spacing (modern mono PERC).
+  panel_density_kwp_per_m2: 0.18
+  # Systems smaller than this are flagged as not worth a feasibility study.
+  min_system_kwp: 3
+  # kg CO2 avoided per kWh. Peninsular Malaysia grid placeholder: verify the latest
+  # Suruhanjaya Tenaga grid emission factor.
+  grid_emission_factor_kg_per_kwh: 0.758
+  # Share of the footprint usable for panels after setbacks, plant, pitch and orientation.
+  # Mapped from solar-demo's categories: residential, apartments, retail, commercial,
+  # industrial, institutional (education, religious, civic, medical, transport, sports),
+  # canopy (minor), unknown.
+  usable_fraction:
+    landed_house: 0.45
+    apartment: 0.40
+    retail: 0.65
+    commercial: 0.60
+    industrial: 0.75
+    education: 0.55
+    religious: 0.55
+    civic: 0.55
+    medical: 0.55
+    transport: 0.55
+    sports: 0.55
+    minor: 0.80
+    utility: 0.50
+    unknown: 0.50
+  # SDP's installed rooftop PV (2024 Sustainability Highlights), used for context only.
+  sdp_existing_rooftop_kwp: 603
+
 # Which buildings get the full analysis in later phases.
 candidates:
   # Known non-residential (and apartment) roofs at least this big become candidates.
@@ -133,4 +173,5 @@ candidates:
   # Landed homes are many small, individually owned roofs: report them as one
   # aggregate "residential rooftop programme" figure instead of ranking each house.
   programme_kinds: [landed_house]
-  excluded_kinds: [minor]
+  # Utility assets (tanks, reservoirs, substations) belong to the utilities, not SDP.
+  excluded_kinds: [minor, utility]

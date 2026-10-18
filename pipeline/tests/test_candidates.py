@@ -19,6 +19,7 @@ def rules():
         ("apartment", 1500, (CANDIDATE, "")),
         ("industrial", 40, (EXCLUDED, "roof_too_small")),
         ("minor", 5000, (EXCLUDED, "minor_structure")),
+        ("utility", 4500, (EXCLUDED, "utility_structure")),
         ("landed_house", 1500, (PROGRAMME, "")),
     ],
 )

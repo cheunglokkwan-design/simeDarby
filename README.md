@@ -14,7 +14,7 @@ Submission deadline: **11:59 PM, 23 October 2026**. See [`docs/PLAN.md`](docs/PL
 |---|---|---|
 | 0 | Repo, config, township boundary | Done |
 | 1 | Data foundation: buildings, kind, height, candidates | Done (Street View spot-check pending) |
-| 2 | Solar potential (kWp, kWh) | Next |
+| 2 | Solar potential (kWp, kWh, tCO₂) | Done: 183 candidate roofs, 30.9 MWp, 41.7 GWh/yr before shading |
 | 3 | 3D map app skeleton + deploy | Next (in parallel) |
 | 4–9 | Shading, demand & scoring, car parks & ESG, validation, pitch, submit | Planned |
 
@@ -42,6 +42,7 @@ Pipeline (Python 3.11+):
 cd pipeline
 uv venv && uv pip install -e ".[dev]"     # or: python -m venv .venv && .venv/bin/pip install -e ".[dev]"
 .venv/bin/solar-mapper phase1 --township elmina   # downloads ~6 MB from Overture on first run
+.venv/bin/solar-mapper phase2 --township elmina   # solar potential -> data/processed/elmina/sites.*
 .venv/bin/pytest
 ```
 

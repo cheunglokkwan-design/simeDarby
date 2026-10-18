@@ -6,12 +6,14 @@ import argparse
 import json
 import logging
 
+import geopandas as gpd
 import pandas as pd
 
 from .boundary import write_boundary
 from .buildings import run_phase1, write_outputs
-from .config import load_township
+from .config import load_assumptions, load_township
 from .overture import download
+from .solar import add_solar_potential, summarise_solar, write_solar_outputs
 from .spotcheck import make_sheet, score_sheet
 
 
@@ -27,6 +29,18 @@ def cmd_phase1(args) -> None:
     else:
         make_sheet(buildings).to_csv(sheet, index=False)
         logging.info("wrote %s", sheet)
+    print(json.dumps(summary, indent=2))
+
+
+def cmd_phase2(args) -> None:
+    t = load_township(args.township)
+    src = t.processed_dir / "buildings.parquet"
+    if not src.exists():
+        raise SystemExit(f"{src} not found: run `solar-mapper phase1 --township {t.slug}` first")
+    cfg = load_assumptions()["solar"]
+    sites = add_solar_potential(gpd.read_parquet(src), cfg)
+    summary = summarise_solar(sites, cfg, t)
+    write_solar_outputs(sites, summary, t)
     print(json.dumps(summary, indent=2))
 
 
@@ -46,6 +60,10 @@ def main(argv: list[str] | None = None) -> None:
     p1.add_argument("--refresh", action="store_true", help="re-download Overture data")
     p1.add_argument("--new-spotcheck", action="store_true", help="redraw the spot-check sample")
     p1.set_defaults(func=cmd_phase1)
+
+    p2 = sub.add_parser("phase2", help="solar potential (kWp, kWh) for every building")
+    p2.add_argument("--township", default="elmina")
+    p2.set_defaults(func=cmd_phase2)
 
     sc = sub.add_parser("spotcheck-score", help="score the filled-in height spot-check sheet")
     sc.add_argument("--township", default="elmina")

@@ -214,11 +214,9 @@ def write_outputs(b: gpd.GeoDataFrame, summary: dict, township: Township) -> dic
     d.mkdir(parents=True, exist_ok=True)
     paths = {
         "parquet": d / "buildings.parquet",
-        "geojson": d / "buildings.geojson",
         "summary": d / "phase1_summary.json",
     }
     b.to_parquet(paths["parquet"], index=False)
-    paths["geojson"].write_text(b.to_json(drop_id=True))
     paths["summary"].write_text(json.dumps(summary, indent=2) + "\n")
     for p in paths.values():
         log.info("wrote %s", p)

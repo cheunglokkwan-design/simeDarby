@@ -1,4 +1,4 @@
-"""Phase 1 exit criteria, checked against the committed processed layer."""
+"""Exit criteria, checked against the committed processed layers."""
 
 import geopandas as gpd
 import pytest
@@ -30,3 +30,16 @@ def test_geometry(b):
     assert b.crs.to_epsg() == 4326
     assert b.is_valid.all()
     assert b.geom_type.isin(["Polygon", "MultiPolygon"]).all()
+
+
+SITES = PATH.parent / "sites.parquet"
+
+
+@pytest.mark.skipif(not SITES.exists(), reason="run `solar-mapper phase2` first")
+def test_sites_have_solar_potential():
+    s = gpd.read_parquet(SITES)
+    assert len(s) == len(gpd.read_parquet(PATH))
+    cand = s[s["role"] == "candidate"]
+    assert (cand["system_kwp"] > 0).all()
+    assert (cand["kwh_yr_unshaded"] / cand["system_kwp"]).between(1340, 1360).all()
+    assert s["display_name"].notna().all()
