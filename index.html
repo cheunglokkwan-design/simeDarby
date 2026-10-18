@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Solar Opportunity Mapper</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="map"></div>
+
+    <aside id="panel">
+      <header>
+        <h1>Solar Opportunity Mapper</h1>
+        <p class="sub">Sime Darby Property · Township of Tomorrow</p>
+      </header>
+
+      <section>
+        <label class="row">Township
+          <select id="township"></select>
+        </label>
+        <div class="status" id="status">Loading…</div>
+      </section>
+
+      <section class="kpis" id="kpis"></section>
+
+      <section>
+        <h2>Sun &amp; shading</h2>
+        <label class="row">Month <span id="monthLabel"></span></label>
+        <input type="range" id="month" min="0" max="11" step="1" />
+        <label class="row">Time (MYT) <span id="hourLabel"></span></label>
+        <input type="range" id="hour" min="7" max="19" step="0.25" />
+        <div class="toggles">
+          <label><input type="checkbox" id="shadows" checked /> Live shadows</label>
+          <label><input type="checkbox" id="animate" /> Animate day</label>
+        </div>
+      </section>
+
+      <section>
+        <h2>Layers</h2>
+        <label class="row">Colour by
+          <select id="colorBy">
+            <option value="score">Solar opportunity score</option>
+            <option value="kwh">Annual generation</option>
+            <option value="shading">Unshaded fraction (raycast)</option>
+            <option value="category">Building type (demand proxy)</option>
+          </select>
+        </label>
+        <div class="legend" id="legend"></div>
+        <div class="toggles">
+          <label><input type="checkbox" id="carparks" checked /> Car park canopies</label>
+          <label><input type="checkbox" id="microgrid" checked /> Community micro-grid links</label>
+          <label><input type="checkbox" id="satellite" /> Satellite basemap</label>
+        </div>
+      </section>
+
+      <section>
+        <h2>Top sites <button id="csv" class="small">Export CSV</button> <button id="save" class="small" hidden>Save to Supabase</button></h2>
+        <ol id="ranking"></ol>
+      </section>
+
+      <section>
+        <details>
+          <summary>Assumptions (editable)</summary>
+          <div id="assumptions"></div>
+          <p class="note">Demo values: check them against current TNB tariffs, SEDA NEM 3.0 rules and Suruhanjaya Tenaga grid factors before the pitch.</p>
+        </details>
+        <button id="refresh" class="small">Re-fetch live OSM data</button>
+      </section>
+
+      <footer>
+        Data © <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors.
+        <span id="db"></span>
+      </footer>
+    </aside>
+
+    <div id="detail" hidden></div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

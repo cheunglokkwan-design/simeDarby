@@ -1,0 +1,35 @@
+{
+  "name": "solar-opportunity-mapper",
+  "version": "1.0.0",
+  "description": "Sime Darby Township of tomorrow hackathon",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "fetch-osm": "node scripts/fetch-osm.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cheunglokkwan-design/simeDarby.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/cheunglokkwan-design/simeDarby/issues"
+  },
+  "homepage": "https://github.com/cheunglokkwan-design/simeDarby#readme",
+  "dependencies": {
+    "@mkkellogg/gaussian-splats-3d": "^0.4.7",
+    "@supabase/supabase-js": "^2.118.0",
+    "deck.gl": "^9.4.0",
+    "maplibre-gl": "^5.24.0",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "vite": "^6.4.4"
+  }
+}
