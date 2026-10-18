@@ -175,3 +175,42 @@ candidates:
   programme_kinds: [landed_house]
   # Utility assets (tanks, reservoirs, substations) belong to the utilities, not SDP.
   excluded_kinds: [minor, utility]
+
+# Export to the web app (public/data/<township>.json, read by src/solar.js buildSites).
+app_export:
+  # Pipeline kind -> app category (src/heights.js CATEGORY_LABEL).
+  category:
+    landed_house: residential
+    apartment: apartments
+    retail: retail
+    commercial: commercial
+    industrial: industrial
+    education: institutional
+    religious: institutional
+    civic: institutional
+    medical: institutional
+    transport: institutional
+    sports: institutional
+    minor: canopy
+    utility: utility
+    unknown: unknown
+  height_source_label:
+    measured: Mapped height
+    floors: Mapped floor count
+    type_rule: Estimated from building type
+  # Surface car parks become proposed solar canopies. Structured parking is already a building.
+  carparks:
+    min_area_m2: 200
+    exclude_parking_types: [multi-storey, underground, rooftop]
+  # Community facilities that receive micro-grid links (mirrors the app's OSM filter:
+  # schools, colleges, clinics, hospitals, community centres, libraries).
+  community:
+    categories: [school, elementary_school, middle_school, high_school, college_university,
+                 hospital, specialty_hospital, primary_care_or_general_clinic, pediatric_clinic,
+                 health_care, community_center, library]
+    # Public schools and clinics often carry a generic category; catch them by name.
+    name_keywords: [sekolah, sk, sjk, sjkc, sjkt, smk, klinik, hospital]
+    # School and hospital buildings the pipeline identified also count, unless a place
+    # already sits within this distance of them.
+    building_kinds: [education, medical]
+    dedupe_m: 50

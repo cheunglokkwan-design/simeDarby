@@ -1,0 +1,209 @@
+{
+  "township": "Ara Damansara",
+  "assumptions": {
+    "specific_yield_kwh_per_kwp": 1350,
+    "panel_density_kwp_per_m2": 0.18,
+    "grid_emission_factor_kg_per_kwh": 0.758,
+    "shading": "not applied (Phase 4)"
+  },
+  "candidates": {
+    "buildings": 1561,
+    "roof_m2": 1266523,
+    "usable_roof_m2": 689153,
+    "system_kwp": 124050,
+    "mwh_yr_unshaded": 167464,
+    "co2_t_yr_unshaded": 126938,
+    "by_kind": {
+      "apartment": {
+        "buildings": 155,
+        "roof_m2": 329917,
+        "usable_roof_m2": 131967,
+        "system_kwp": 23754,
+        "mwh_yr_unshaded": 32068,
+        "co2_t_yr_unshaded": 24307
+      },
+      "civic": {
+        "buildings": 6,
+        "roof_m2": 9706,
+        "usable_roof_m2": 5338,
+        "system_kwp": 961,
+        "mwh_yr_unshaded": 1297,
+        "co2_t_yr_unshaded": 983
+      },
+      "commercial": {
+        "buildings": 545,
+        "roof_m2": 419811,
+        "usable_roof_m2": 251886,
+        "system_kwp": 45340,
+        "mwh_yr_unshaded": 61208,
+        "co2_t_yr_unshaded": 46396
+      },
+      "education": {
+        "buildings": 47,
+        "roof_m2": 41479,
+        "usable_roof_m2": 22814,
+        "system_kwp": 4106,
+        "mwh_yr_unshaded": 5544,
+        "co2_t_yr_unshaded": 4202
+      },
+      "industrial": {
+        "buildings": 64,
+        "roof_m2": 44702,
+        "usable_roof_m2": 33527,
+        "system_kwp": 6035,
+        "mwh_yr_unshaded": 8147,
+        "co2_t_yr_unshaded": 6175
+      },
+      "medical": {
+        "buildings": 8,
+        "roof_m2": 10793,
+        "usable_roof_m2": 5936,
+        "system_kwp": 1068,
+        "mwh_yr_unshaded": 1442,
+        "co2_t_yr_unshaded": 1093
+      },
+      "religious": {
+        "buildings": 23,
+        "roof_m2": 22155,
+        "usable_roof_m2": 12185,
+        "system_kwp": 2193,
+        "mwh_yr_unshaded": 2961,
+        "co2_t_yr_unshaded": 2245
+      },
+      "retail": {
+        "buildings": 501,
+        "roof_m2": 204007,
+        "usable_roof_m2": 132605,
+        "system_kwp": 23870,
+        "mwh_yr_unshaded": 32223,
+        "co2_t_yr_unshaded": 24425
+      },
+      "sports": {
+        "buildings": 12,
+        "roof_m2": 4429,
+        "usable_roof_m2": 2436,
+        "system_kwp": 439,
+        "mwh_yr_unshaded": 592,
+        "co2_t_yr_unshaded": 449
+      },
+      "transport": {
+        "buildings": 8,
+        "roof_m2": 13964,
+        "usable_roof_m2": 7680,
+        "system_kwp": 1383,
+        "mwh_yr_unshaded": 1866,
+        "co2_t_yr_unshaded": 1415
+      },
+      "unknown": {
+        "buildings": 192,
+        "roof_m2": 165560,
+        "usable_roof_m2": 82780,
+        "system_kwp": 14900,
+        "mwh_yr_unshaded": 20116,
+        "co2_t_yr_unshaded": 15248
+      }
+    },
+    "multiple_of_sdp_existing_rooftop_pv": 205.7
+  },
+  "residential_programme": {
+    "buildings": 4925,
+    "roof_m2": 882206,
+    "usable_roof_m2": 396993,
+    "system_kwp": 71456,
+    "mwh_yr_unshaded": 96469,
+    "co2_t_yr_unshaded": 73124
+  },
+  "below_min_system": 887,
+  "top_candidates": [
+    {
+      "id": "6169f047-f230-4b64-b5a6-391a70bf68c2",
+      "name": "Paradigm Mall",
+      "kind": "retail",
+      "roof_m2": 23368,
+      "system_kwp": 2734.1,
+      "mwh_yr_unshaded": 3691.0,
+      "data_flags": "height_estimated"
+    },
+    {
+      "id": "be5a19e9-c781-4c3e-aaab-d62f954e7aa0",
+      "name": "Auto Mall Ara Damansara",
+      "kind": "retail",
+      "roof_m2": 18910,
+      "system_kwp": 2212.4,
+      "mwh_yr_unshaded": 2986.8,
+      "data_flags": "height_estimated;type_inferred"
+    },
+    {
+      "id": "61cefd7b-32df-4d14-a56d-5ab59e127774",
+      "name": "Citta Mall",
+      "kind": "retail",
+      "roof_m2": 15384,
+      "system_kwp": 1799.9,
+      "mwh_yr_unshaded": 2429.9,
+      "data_flags": "height_estimated"
+    },
+    {
+      "id": "4a7fbef5-af1f-40e1-9d9b-8efbc1ed8c08",
+      "name": "Lotus's",
+      "kind": "retail",
+      "roof_m2": 14932,
+      "system_kwp": 1747.0,
+      "mwh_yr_unshaded": 2358.4,
+      "data_flags": "height_estimated"
+    },
+    {
+      "id": "13dba584-e94c-4216-935b-1cd1505d3ef3",
+      "name": "Unclassified building",
+      "kind": "unknown",
+      "roof_m2": 17388,
+      "system_kwp": 1564.9,
+      "mwh_yr_unshaded": 2112.7,
+      "data_flags": "height_estimated;type_unknown;construction_zone"
+    },
+    {
+      "id": "ddfda7c1-b54d-4580-8697-51f1b2d5a9f9",
+      "name": "Evolve Concept Mall",
+      "kind": "retail",
+      "roof_m2": 12661,
+      "system_kwp": 1481.3,
+      "mwh_yr_unshaded": 1999.8,
+      "data_flags": "height_estimated;type_inferred"
+    },
+    {
+      "id": "d598051c-3412-42c9-938d-2a472d57b3e5",
+      "name": "Persada Plus",
+      "kind": "commercial",
+      "roof_m2": 12889,
+      "system_kwp": 1392.0,
+      "mwh_yr_unshaded": 1879.2,
+      "data_flags": "height_estimated;type_inferred"
+    },
+    {
+      "id": "8cdfdf86-07fd-4d9a-a99d-715d2f6d7462",
+      "name": "MOVE Private Fitness | Personal Training | Ara Damansara",
+      "kind": "apartment",
+      "roof_m2": 18319,
+      "system_kwp": 1318.9,
+      "mwh_yr_unshaded": 1780.6,
+      "data_flags": "height_estimated"
+    },
+    {
+      "id": "986292bc-3ce9-4053-aca0-a6ac75a1c286",
+      "name": "SD Guthrie Berhad",
+      "kind": "commercial",
+      "roof_m2": 10944,
+      "system_kwp": 1181.9,
+      "mwh_yr_unshaded": 1595.6,
+      "data_flags": "height_estimated;type_inferred"
+    },
+    {
+      "id": "0b374e36-62fa-4504-aefa-929c6237ca62",
+      "name": "Menara Prima",
+      "kind": "commercial",
+      "roof_m2": 10768,
+      "system_kwp": 1162.9,
+      "mwh_yr_unshaded": 1569.9,
+      "data_flags": "height_estimated"
+    }
+  ]
+}

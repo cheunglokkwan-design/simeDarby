@@ -21,8 +21,7 @@ class Township:
     overture_release: str
     bbox: tuple[float, float, float, float]  # xmin, ymin, xmax, ymax
     utm_epsg: int
-    boundary_name_pattern: str
-    boundary_buffer_m: float
+    boundary: dict  # {method: land_use_names, name_pattern, buffer_m} or {method: bbox, bbox}
 
     @property
     def raw_dir(self) -> Path:
@@ -47,8 +46,7 @@ def load_township(slug: str) -> Township:
         overture_release=raw["overture_release"],
         bbox=(b["xmin"], b["ymin"], b["xmax"], b["ymax"]),
         utm_epsg=raw["utm_epsg"],
-        boundary_name_pattern=raw["boundary"]["name_pattern"],
-        boundary_buffer_m=raw["boundary"]["buffer_m"],
+        boundary=raw["boundary"],
     )
 
 

@@ -37,7 +37,7 @@ def display_name(row) -> str:
         return row.building_name
     if isinstance(row.place_names, str) and row.place_names:
         return row.place_names.split("; ")[0]
-    label = row.kind.replace("_", " ").capitalize()
+    label = "Unclassified building" if row.kind == "unknown" else row.kind.replace("_", " ").capitalize()
     if isinstance(row.land_use_name, str) and row.land_use_name:
         return f"{label} in {row.land_use_name}"
     return label

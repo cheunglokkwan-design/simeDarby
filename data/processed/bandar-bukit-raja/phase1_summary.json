@@ -1,0 +1,108 @@
+{
+  "township": "Bandar Bukit Raja",
+  "overture_release": "2026-09-23.1",
+  "boundary_area_km2": 11.21,
+  "footprints": {
+    "in_boundary": 3605,
+    "dropped_below_min_m2": 109,
+    "analysed": 3496
+  },
+  "by_source_dataset": {
+    "OpenStreetMap": 1620,
+    "Google Open Buildings": 960,
+    "Microsoft ML Buildings": 916
+  },
+  "by_kind": {
+    "landed_house": 2705,
+    "industrial": 367,
+    "retail": 193,
+    "unknown": 134,
+    "commercial": 65,
+    "sports": 8,
+    "minor": 6,
+    "education": 5,
+    "apartment": 5,
+    "religious": 4,
+    "transport": 2,
+    "civic": 1,
+    "medical": 1
+  },
+  "by_kind_source": {
+    "land_use": 1557,
+    "overture_class": 1483,
+    "land_use_shape": 268,
+    "size": 146,
+    "place": 38,
+    "overture_subtype": 4
+  },
+  "by_height_source": {
+    "type_rule": 3496
+  },
+  "by_role": {
+    "residential_programme": 2705,
+    "candidate": 585,
+    "excluded": 206
+  },
+  "data_flags": {
+    "height_estimated": 3496,
+    "ml_footprint": 1876,
+    "type_inferred": 1875,
+    "type_unknown": 134,
+    "construction_zone": 27
+  },
+  "mean_height_confidence": 0.404,
+  "candidates": {
+    "count": 585,
+    "roof_m2": 544015,
+    "by_kind": {
+      "apartment": {
+        "count": 5,
+        "roof_m2": 10840
+      },
+      "civic": {
+        "count": 1,
+        "roof_m2": 2661
+      },
+      "commercial": {
+        "count": 58,
+        "roof_m2": 61314
+      },
+      "education": {
+        "count": 4,
+        "roof_m2": 4247
+      },
+      "industrial": {
+        "count": 181,
+        "roof_m2": 254826
+      },
+      "medical": {
+        "count": 1,
+        "roof_m2": 4501
+      },
+      "religious": {
+        "count": 4,
+        "roof_m2": 3715
+      },
+      "retail": {
+        "count": 193,
+        "roof_m2": 38233
+      },
+      "sports": {
+        "count": 2,
+        "roof_m2": 527
+      },
+      "transport": {
+        "count": 2,
+        "roof_m2": 7567
+      },
+      "unknown": {
+        "count": 134,
+        "roof_m2": 155586
+      }
+    }
+  },
+  "residential_programme": {
+    "buildings": 2705,
+    "roof_m2": 683820
+  }
+}

@@ -6,7 +6,7 @@ import json
 
 import geopandas as gpd
 import shapely
-from shapely.geometry import MultiPolygon, Polygon, mapping
+from shapely.geometry import MultiPolygon, Polygon, box, mapping
 
 from .config import Township
 from .io import primary_name, read_overture
@@ -38,18 +38,26 @@ def derive_boundary(land_use: gpd.GeoDataFrame, pattern: str, buffer_m: float, u
 
 
 def write_boundary(township: Township) -> gpd.GeoDataFrame:
-    land_use = read_overture(township.raw_dir / "land_use.parquet")
-    geom, sources = derive_boundary(
-        land_use, township.boundary_name_pattern, township.boundary_buffer_m, township.utm_epsg
-    )
+    cfg = township.boundary
+    if cfg["method"] == "bbox":
+        b = cfg["bbox"]
+        geom, sources = box(b["xmin"], b["ymin"], b["xmax"], b["ymax"]), []
+        method = "rectangle from the township config (no named outline in open data)"
+    elif cfg["method"] == "land_use_names":
+        land_use = read_overture(township.raw_dir / "land_use.parquet")
+        geom, sources = derive_boundary(land_use, cfg["name_pattern"], cfg["buffer_m"], township.utm_epsg)
+        method = (
+            f"union of Overture {township.overture_release} land_use polygons named like "
+            f"'{cfg['name_pattern']}', holes filled, buffered {cfg['buffer_m']} m"
+        )
+    else:
+        raise ValueError(f"unknown boundary method {cfg['method']!r}")
     area_km2 = gpd.GeoSeries([geom], crs=4326).to_crs(township.utm_epsg).area.iloc[0] / 1e6
     feature = {
         "type": "Feature",
         "properties": {
             "township": township.name,
-            "method": f"union of Overture {township.overture_release} land_use polygons "
-            f"named like '{township.boundary_name_pattern}', holes filled, "
-            f"buffered {township.boundary_buffer_m} m",
+            "method": method,
             "approximate": True,
             "area_km2": round(area_km2, 2),
             "source_polygons": sources,

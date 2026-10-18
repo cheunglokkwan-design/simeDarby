@@ -8,9 +8,31 @@ there, not in code.
 .venv/bin/solar-mapper phase1 --township elmina            # build everything for Phase 1
 .venv/bin/solar-mapper phase1 --refresh                    # re-download Overture data
 .venv/bin/solar-mapper phase2                              # solar potential (needs phase1 output)
+.venv/bin/solar-mapper export-app                          # public/data/<township>.json for the web app
+.venv/bin/solar-mapper run --township ara-damansara        # all three steps
 .venv/bin/solar-mapper spotcheck-score                     # score the filled-in height check
 .venv/bin/pytest
 ```
+
+Townships: `elmina`, `ara-damansara`, `bandar-bukit-raja` (`config/townships/*.yaml`).
+- **Elmina:** boundary from Elmina-named land-use polygons.
+- **Bandar Bukit Raja:** the mapped "Bandar Bukit Raja" outline.
+- **Ara Damansara:** no outline exists in open data, so it uses the rectangle the web demo already used.
+
+## Web app export
+
+`solar_mapper/app_export.py` writes `public/data/<township>.json` with the same
+`{buildings, parking, community}` shape as the app's OSM snapshots.
+- **Buildings** also carry the pipeline's `category`, `height`, `heightSource`,
+  `heightConfidence`, `footprintSource`, `dataFlags` and `role`. The app uses these
+  instead of re-deriving them from OSM tags.
+- **Car parks** are Overture `infrastructure` parking polygons: surface only, at least 200 m².
+  Open data is thin here (Elmina has only 5 qualifying car parks), which is the case for detecting them from imagery later.
+- **Community sites** are schools, clinics, hospitals and libraries from places, plus school and
+  hospital buildings that no place marks yet.
+
+`tests/test_app_export.py` checks that the usable fractions, yield, panel density and
+emission factor in `assumptions.yaml` match `src/solar.js`, so both always give the same kWp.
 
 ## Phase 1: data foundation
 

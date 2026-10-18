@@ -6,14 +6,14 @@ import { PolygonLayer, SolidPolygonLayer, ScatterplotLayer, ArcLayer } from '@de
 import { TOWNSHIPS } from './townships.js';
 import { fetchOverpass } from './osm.js';
 import { CATEGORY_LABEL } from './heights.js';
-import { DEFAULT_ASSUMPTIONS, buildSites, scoreSites, microGridLinks, summarise, toCSV } from './solar.js';
+import { DEFAULT_ASSUMPTIONS, buildSites, scoreSites, microGridLinks, summarise, toCSV, isViable } from './solar.js';
 import { supabase, loadAssumptionOverrides, saveShortlist } from './supabase.js';
 
 const $ = (id) => document.getElementById(id);
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 const state = {
-  township: 'ara-damansara',
+  township: 'elmina',
   raw: null,
   sites: [],
   ranked: [],
@@ -71,14 +71,30 @@ function ramp(t) {
 const CATEGORY_COLOR = {
   residential: [120, 170, 255], apartments: [80, 120, 230], retail: [255, 150, 70],
   commercial: [255, 210, 80], industrial: [230, 90, 90], institutional: [110, 220, 160],
-  canopy: [150, 150, 160], carpark: [70, 220, 230], unknown: [170, 170, 180]
+  canopy: [150, 150, 160], carpark: [70, 220, 230], utility: [105, 105, 115], unknown: [170, 170, 180]
 };
 const SHADE_RAMP = (t) => [Math.round(30 + 225 * t), Math.round(60 + 190 * t), Math.round(140 + 100 * t)];
+// Data confidence: red (guessed) -> amber -> green (mapped).
+const CONF_STOPS = [[220, 70, 70], [245, 180, 60], [80, 210, 120]];
+function confColor(t) {
+  t = Math.max(0, Math.min(1, (t - 0.2) / 0.7)) * 2;
+  const i = Math.min(1, Math.floor(t)), f = t - i;
+  return CONF_STOPS[i].map((c, k) => Math.round(c + (CONF_STOPS[i + 1][k] - c) * f));
+}
+const SOURCE_COLOR = {
+  OpenStreetMap: [120, 170, 255], 'Google Open Buildings': [255, 190, 70], 'Microsoft ML Buildings': [190, 120, 255]
+};
+const SOURCE_LABEL = {
+  OpenStreetMap: 'OpenStreetMap (mapped by people)', 'Google Open Buildings': 'Google Open Buildings (AI-traced)',
+  'Microsoft ML Buildings': 'Microsoft ML Buildings (AI-traced)'
+};
 
 function fillColor(s) {
   if (state.selected === s) return [255, 255, 255];
   if (state.colorBy === 'category') return CATEGORY_COLOR[s.category];
   if (state.colorBy === 'shading') return SHADE_RAMP(s.shading ?? 1);
+  if (state.colorBy === 'confidence') return confColor(s.heightConfidence ?? 0.3);
+  if (state.colorBy === 'source') return SOURCE_COLOR[s.footprintSource] ?? [170, 170, 180];
   if (s.flags.includes('Too small')) return [70, 72, 85];
   if (state.colorBy === 'kwh') return ramp(Math.log10(Math.max(s.kwh, 1)) / 6);
   return ramp(s.score / 85);
@@ -93,6 +109,11 @@ function renderLegend() {
       .map(([k, c]) => `<span class="sw"><i style="background:rgb(${c})"></i>${CATEGORY_LABEL[k]}</span>`)
       .join('');
   else if (state.colorBy === 'shading') el.innerHTML = bar([0, 0.5, 1].map(SHADE_RAMP), 'Heavily shaded', 'Full sun');
+  else if (state.colorBy === 'confidence') el.innerHTML = bar(CONF_STOPS, 'Height & type guessed', 'Mapped');
+  else if (state.colorBy === 'source')
+    el.innerHTML = Object.entries(SOURCE_COLOR)
+      .map(([k, c]) => `<span class="sw"><i style="background:rgb(${c})"></i>${SOURCE_LABEL[k]}</span>`)
+      .join('');
   else if (state.colorBy === 'kwh') el.innerHTML = bar(RAMP, '1 MWh/yr', '1 GWh/yr');
   else el.innerHTML = bar(RAMP, 'Low opportunity', 'High opportunity') + '<div class="ends"><span>Grey = too small</span></div>';
 }
@@ -105,9 +126,11 @@ function sunTimestamp() {
 }
 function lightingEffect() {
   const ambient = new AmbientLight({ color: [255, 255, 255], intensity: 1.0 });
-  const sun = new SunLight({ timestamp: sunTimestamp(), color: [255, 245, 225], intensity: 2.2, _shadow: state.shadows });
+  // Keep the shadow pass on and hide shadows by making them transparent: switching
+  // `_shadow` off rebuilds shaders without the shadow-map bindings and blanks the scene.
+  const sun = new SunLight({ timestamp: sunTimestamp(), color: [255, 245, 225], intensity: 2.2, _shadow: true });
   const fx = new LightingEffect({ ambient, sun });
-  fx.shadowColor = [0, 0, 0, 0.55];
+  fx.shadowColor = [0, 0, 0, state.shadows ? 0.55 : 0];
   return fx;
 }
 
@@ -167,7 +190,8 @@ function render() {
         getTargetColor: [80, 240, 170, 220],
         getWidth: 2.5,
         getHeight: 0.6,
-        pickable: true
+        pickable: true,
+        shadowEnabled: false // arcs floating over the ground must not cast shadows
       }),
       new ScatterplotLayer({
         id: 'community',
@@ -179,7 +203,8 @@ function render() {
         getLineColor: [10, 40, 30],
         stroked: true,
         lineWidthMinPixels: 1,
-        pickable: true
+        pickable: true,
+        shadowEnabled: false
       })
     );
   }
@@ -217,7 +242,7 @@ function renderKPIs() {
 }
 
 function renderRanking() {
-  state.ranked = state.sites.filter((s) => !s.flags.includes('Too small')).sort((a, b) => b.score - a.score);
+  state.ranked = state.sites.filter(isViable).sort((a, b) => b.score - a.score);
   $('ranking').innerHTML = state.ranked
     .slice(0, 25)
     .map(
@@ -250,6 +275,8 @@ function renderDetail() {
     ['Building type', s.categoryLabel],
     ['Footprint', `${fmt(s.area, 0)} m²`],
     ['Height', `${fmt(s.height, 1)} m <small>(${s.heightSource})</small>`],
+    ['Data confidence', `${fmt((s.heightConfidence ?? 0) * 100, 0)} % <small>(type from ${esc(s.kindSource.replace(/_/g, ' '))})</small>`],
+    ['Footprint from', esc(SOURCE_LABEL[s.footprintSource] ?? s.footprintSource)],
     ['Usable roof', `${fmt(s.usable, 0)} m²`],
     ['Unshaded fraction', s.shading == null ? 'computing…' : `${fmt(s.shading * 100, 0)} %`],
     ['System size', `${fmt(s.kwp, 1)} kWp`],
@@ -267,14 +294,21 @@ function renderDetail() {
     <h3>${esc(s.name || s.categoryLabel)}</h3>
     <div class="sub">${s.id} · ${lat.toFixed(5)}, ${lon.toFixed(5)}</div>
     <div>${s.flags.length ? s.flags.map((f) => `<span class="flag">${f}</span>`).join('') : '<span class="flag ok">Passes engineering checks</span>'}</div>
+    ${s.dataFlags.length ? `<div>${s.dataFlags.map((f) => `<span class="flag data" title="Data quality">${DATA_FLAG_LABEL[f] ?? f}</span>`).join('')}</div>` : ''}
     <table>${rows.map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join('')}</table>
     <div class="actions">
       <a class="small" href="/splat.html?site=${encodeURIComponent(s.name || s.id)}" target="_blank"><button class="small">Micro-verify in 3D (splat)</button></a>
-      <a href="https://www.openstreetmap.org/${s.id}" target="_blank"><button class="small">View on OSM</button></a>
+      ${/^(way|node|relation)\//.test(s.id) ? `<a href="https://www.openstreetmap.org/${s.id}" target="_blank"><button class="small">View on OSM</button></a>` : ''}
       <a href="https://www.google.com/maps/@${lat},${lon},120m/data=!3m1!1e3" target="_blank"><button class="small">Satellite</button></a>
     </div>`;
   el.querySelector('.close').onclick = () => { state.selected = null; renderDetail(); renderRanking(); render(); };
 }
+
+const DATA_FLAG_LABEL = {
+  height_estimated: 'Height estimated', type_inferred: 'Type inferred', type_unknown: 'Type unknown',
+  tag_overridden: 'Map tag overridden', ml_footprint: 'AI-traced outline', construction_zone: 'Construction zone',
+  below_min_system: 'Below 3 kWp'
+};
 
 function renderAssumptions() {
   const labels = {
@@ -319,7 +353,8 @@ function runShading() {
     if (data.done) {
       data.result.forEach((v, i) => (state.sites[i].shading = state.sites[i].category === 'carpark' ? 0.95 : v));
       state.shadingReady = true;
-      setStatus(`${state.sites.length.toLocaleString()} sites · shading raycast done in ${((performance.now() - t0) / 1000).toFixed(1)} s · OSM snapshot ${state.raw.fetchedAt.slice(0, 10)}`);
+      const src = state.raw.pipeline ? 'Overture' : 'OSM snapshot';
+      setStatus(`${state.sites.length.toLocaleString()} sites · shading raycast done in ${((performance.now() - t0) / 1000).toFixed(1)} s · ${src} ${state.raw.fetchedAt.slice(0, 10)}`);
       recompute();
     }
   };
@@ -332,7 +367,7 @@ async function loadTownship(id, live = false) {
   state.selected = null;
   renderDetail();
   const t = TOWNSHIPS[id];
-  setStatus(live ? 'Fetching live data from OpenStreetMap…' : 'Loading OSM snapshot…');
+  setStatus(live ? 'Fetching live data from OpenStreetMap…' : 'Loading township data…');
   state.raw = live
     ? await fetchOverpass(t.bbox)
     : await fetch(`${import.meta.env.BASE_URL}data/${id}.json`).then((r) => r.json());

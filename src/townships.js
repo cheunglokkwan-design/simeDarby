@@ -1,6 +1,12 @@
-// Sime Darby Property townships used in the demo.
+// Sime Darby Property townships used in the demo. The app loads public/data/<id>.json,
+// written by the solar-mapper pipeline (`solar-mapper run --township <id>`).
 // bbox = [south, west, north, east] (Overpass order)
 export const TOWNSHIPS = {
+  elmina: {
+    name: 'City of Elmina',
+    bbox: [3.149, 101.487, 3.25, 101.53],
+    view: { longitude: 101.513, latitude: 3.19, zoom: 14.4, pitch: 55, bearing: -20 }
+  },
   'ara-damansara': {
     name: 'Ara Damansara',
     bbox: [3.095, 101.565, 3.125, 101.6],
@@ -8,7 +14,8 @@ export const TOWNSHIPS = {
   },
   'bandar-bukit-raja': {
     name: 'Bandar Bukit Raja',
-    bbox: [3.055, 101.4, 3.09, 101.44],
-    view: { longitude: 101.42, latitude: 3.0725, zoom: 14.8, pitch: 55, bearing: -20 }
+    // Mapped "Bandar Bukit Raja" outline (pipeline/config/townships/bandar-bukit-raja.yaml).
+    bbox: [3.075, 101.41, 3.112, 101.47],
+    view: { longitude: 101.44, latitude: 3.094, zoom: 14.5, pitch: 55, bearing: -20 }
   }
 };

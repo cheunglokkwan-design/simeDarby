@@ -8,7 +8,7 @@ Deadline: **11:59 PM, Fri 23 Oct 2026**. Target submission time: 6 PM.
 | 0. Setup | Sun 18 | All | Repo skeleton, config, boundary | Done |
 | 1. Data foundation | Sun 18 – Mon 19 AM | Pipeline | Every building with a height and a confidence flag | Done (spot-check pending) |
 | 2. Solar potential | Mon 19 | Pipeline | kWp and kWh per roof | Done (yield and emission factor still placeholders) |
-| 3. App skeleton | Mon 19 (parallel) | Web | Live URL with 3D buildings | Largely exists on `solar-demo` |
+| 3. App skeleton | Mon 19 (parallel) | Web | Live URL with 3D buildings | Done: `solar-demo` merged and fed by the pipeline for 3 townships; Vercel deploy pending |
 | 4. Shading | Tue 20 | Pipeline + Web | Shading loss %, sun slider | |
 | 5. Demand and scoring | Tue 20 | Pipeline + Web | Ranked shortlist, CSV export | |
 | 6. Car parks and ESG | Wed 21 | Pipeline + Web | Car-park canopies, CO₂ tracker | |
@@ -43,9 +43,11 @@ The pipeline's Phase 2 deliberately reuses its constants (`DEFAULT_ASSUMPTIONS`,
 | Heights | tag, then levels, then type default | Same cascade, plus a confidence score per building |
 | Data-quality flags | Engineering flags | Data provenance flags (ML footprint, type inferred, construction zone, ...) |
 
-**Open decision:**
-- Option 1: keep `solar-demo` as the front end and feed it pipeline output (e.g. an Elmina layer), replacing the planned `web/` app.
-- Option 2: keep the two separate.
+**Decided (18 Oct):**
+- `solar-demo` is the front end; it was merged and the `web/` scaffold dropped.
+- The pipeline exports `public/data/<township>.json` for **City of Elmina, Ara Damansara and Bandar Bukit Raja**.
+- The app uses the pipeline's types, heights and provenance, and adds *Data confidence* and *Footprint source* colour modes.
+- The browser shading worker covers most of Phase 4. What remains there: show a shading-confidence caveat, and validate the shading against a known case.
 
 ## 0. Setup
 - Monorepo: `pipeline/`, `web/`, `docs/`.

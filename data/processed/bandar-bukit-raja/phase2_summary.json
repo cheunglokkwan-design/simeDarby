@@ -1,0 +1,209 @@
+{
+  "township": "Bandar Bukit Raja",
+  "assumptions": {
+    "specific_yield_kwh_per_kwp": 1350,
+    "panel_density_kwp_per_m2": 0.18,
+    "grid_emission_factor_kg_per_kwh": 0.758,
+    "shading": "not applied (Phase 4)"
+  },
+  "candidates": {
+    "buildings": 585,
+    "roof_m2": 544015,
+    "usable_roof_m2": 347658,
+    "system_kwp": 62579,
+    "mwh_yr_unshaded": 84481,
+    "co2_t_yr_unshaded": 64036,
+    "by_kind": {
+      "apartment": {
+        "buildings": 5,
+        "roof_m2": 10840,
+        "usable_roof_m2": 4336,
+        "system_kwp": 781,
+        "mwh_yr_unshaded": 1054,
+        "co2_t_yr_unshaded": 799
+      },
+      "civic": {
+        "buildings": 1,
+        "roof_m2": 2661,
+        "usable_roof_m2": 1463,
+        "system_kwp": 263,
+        "mwh_yr_unshaded": 356,
+        "co2_t_yr_unshaded": 270
+      },
+      "commercial": {
+        "buildings": 58,
+        "roof_m2": 61314,
+        "usable_roof_m2": 36788,
+        "system_kwp": 6622,
+        "mwh_yr_unshaded": 8940,
+        "co2_t_yr_unshaded": 6776
+      },
+      "education": {
+        "buildings": 4,
+        "roof_m2": 4247,
+        "usable_roof_m2": 2336,
+        "system_kwp": 420,
+        "mwh_yr_unshaded": 568,
+        "co2_t_yr_unshaded": 430
+      },
+      "industrial": {
+        "buildings": 181,
+        "roof_m2": 254826,
+        "usable_roof_m2": 191119,
+        "system_kwp": 34402,
+        "mwh_yr_unshaded": 46442,
+        "co2_t_yr_unshaded": 35203
+      },
+      "medical": {
+        "buildings": 1,
+        "roof_m2": 4501,
+        "usable_roof_m2": 2476,
+        "system_kwp": 446,
+        "mwh_yr_unshaded": 602,
+        "co2_t_yr_unshaded": 456
+      },
+      "religious": {
+        "buildings": 4,
+        "roof_m2": 3715,
+        "usable_roof_m2": 2043,
+        "system_kwp": 368,
+        "mwh_yr_unshaded": 496,
+        "co2_t_yr_unshaded": 376
+      },
+      "retail": {
+        "buildings": 193,
+        "roof_m2": 38233,
+        "usable_roof_m2": 24853,
+        "system_kwp": 4473,
+        "mwh_yr_unshaded": 6039,
+        "co2_t_yr_unshaded": 4577
+      },
+      "sports": {
+        "buildings": 2,
+        "roof_m2": 527,
+        "usable_roof_m2": 290,
+        "system_kwp": 52,
+        "mwh_yr_unshaded": 70,
+        "co2_t_yr_unshaded": 53
+      },
+      "transport": {
+        "buildings": 2,
+        "roof_m2": 7567,
+        "usable_roof_m2": 4162,
+        "system_kwp": 749,
+        "mwh_yr_unshaded": 1011,
+        "co2_t_yr_unshaded": 767
+      },
+      "unknown": {
+        "buildings": 134,
+        "roof_m2": 155586,
+        "usable_roof_m2": 77793,
+        "system_kwp": 14003,
+        "mwh_yr_unshaded": 18904,
+        "co2_t_yr_unshaded": 14329
+      }
+    },
+    "multiple_of_sdp_existing_rooftop_pv": 103.8
+  },
+  "residential_programme": {
+    "buildings": 2705,
+    "roof_m2": 683820,
+    "usable_roof_m2": 307719,
+    "system_kwp": 55388,
+    "mwh_yr_unshaded": 74776,
+    "co2_t_yr_unshaded": 56680
+  },
+  "below_min_system": 597,
+  "top_candidates": [
+    {
+      "id": "4ad06c19-ff7f-4db2-b24f-b851f5063176",
+      "name": "Industrial in Bandar Bukit Raja",
+      "kind": "industrial",
+      "roof_m2": 31778,
+      "system_kwp": 4290.1,
+      "mwh_yr_unshaded": 5791.6,
+      "data_flags": "height_estimated"
+    },
+    {
+      "id": "ff308a8a-1799-4308-bb7d-10037f040b20",
+      "name": "Industrial in Bandar Bukit Raja",
+      "kind": "industrial",
+      "roof_m2": 28660,
+      "system_kwp": 3869.1,
+      "mwh_yr_unshaded": 5223.3,
+      "data_flags": "height_estimated"
+    },
+    {
+      "id": "cb2011e7-0212-42cf-b836-c74e396c7b71",
+      "name": "Industrial in Bandar Bukit Raja",
+      "kind": "industrial",
+      "roof_m2": 28433,
+      "system_kwp": 3838.5,
+      "mwh_yr_unshaded": 5182.0,
+      "data_flags": "height_estimated"
+    },
+    {
+      "id": "7838be62-5eb6-455e-8abc-0006c8acfa4a",
+      "name": "Industrial in Bandar Bukit Raja",
+      "kind": "industrial",
+      "roof_m2": 12378,
+      "system_kwp": 1671.0,
+      "mwh_yr_unshaded": 2255.8,
+      "data_flags": "height_estimated;type_inferred;ml_footprint"
+    },
+    {
+      "id": "d8d04e4c-c288-4317-af79-a1ef0083a6c3",
+      "name": "Industrial in Bandar Bukit Raja",
+      "kind": "industrial",
+      "roof_m2": 10389,
+      "system_kwp": 1402.6,
+      "mwh_yr_unshaded": 1893.5,
+      "data_flags": "height_estimated"
+    },
+    {
+      "id": "f455febb-8782-4701-89ad-595d9175d5e8",
+      "name": "Industrial in Bandar Bukit Raja",
+      "kind": "industrial",
+      "roof_m2": 9670,
+      "system_kwp": 1305.4,
+      "mwh_yr_unshaded": 1762.4,
+      "data_flags": "height_estimated;type_inferred;ml_footprint"
+    },
+    {
+      "id": "b310e88a-ed56-4d7d-ab72-561b0130a00d",
+      "name": "Industrial in Bandar Bukit Raja",
+      "kind": "industrial",
+      "roof_m2": 9571,
+      "system_kwp": 1292.1,
+      "mwh_yr_unshaded": 1744.3,
+      "data_flags": "height_estimated;type_inferred;ml_footprint"
+    },
+    {
+      "id": "c639bbfb-e747-49cb-9762-537b2db9cf39",
+      "name": "Industrial in Bandar Bukit Raja",
+      "kind": "industrial",
+      "roof_m2": 8495,
+      "system_kwp": 1146.8,
+      "mwh_yr_unshaded": 1548.2,
+      "data_flags": "height_estimated"
+    },
+    {
+      "id": "a2fc2474-5dc0-41e7-a956-2583dd749237",
+      "name": "Industrial in Bandar Bukit Raja",
+      "kind": "industrial",
+      "roof_m2": 7669,
+      "system_kwp": 1035.3,
+      "mwh_yr_unshaded": 1397.7,
+      "data_flags": "height_estimated;type_inferred;ml_footprint"
+    },
+    {
+      "id": "1599c132-4c93-431c-bff7-040f95e7b5ff",
+      "name": "\u9a6c\u6765\u897f\u4e9a\u5df4\u751f\u539f\u59cb\u70b9\u516c\u76ca\u7ad9\uff08YSD Association\uff09",
+      "kind": "industrial",
+      "roof_m2": 4374,
+      "system_kwp": 590.4,
+      "mwh_yr_unshaded": 797.1,
+      "data_flags": "height_estimated"
+    }
+  ]
+}

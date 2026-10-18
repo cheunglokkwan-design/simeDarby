@@ -75,6 +75,7 @@ footer a { color: var(--muted); }
 #detail td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
 .flag { display: inline-block; background: rgba(255, 138, 92, 0.15); color: var(--warn); border-radius: 4px; padding: 1px 6px; margin: 4px 4px 0 0; font-size: 11px; }
 .flag.ok { background: rgba(85, 214, 138, 0.15); color: var(--good); }
+.flag.data { background: rgba(120, 170, 255, 0.14); color: #9cc0ff; }
 .actions { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
 .actions a, .actions button { text-decoration: none; }
 .deck-tooltip { font-family: inherit !important; font-size: 12px !important; border-radius: 6px; }

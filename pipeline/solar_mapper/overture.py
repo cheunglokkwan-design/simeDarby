@@ -27,6 +27,7 @@ LAYERS = {
     "buildings": ("buildings", "building"),
     "places": ("places", "place"),
     "land_use": ("base", "land_use"),
+    "infrastructure": ("base", "infrastructure"),  # car parks
 }
 
 

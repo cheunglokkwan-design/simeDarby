@@ -1,0 +1,113 @@
+{
+  "township": "Ara Damansara",
+  "overture_release": "2026-09-23.1",
+  "boundary_area_km2": 12.92,
+  "footprints": {
+    "in_boundary": 6957,
+    "dropped_below_min_m2": 214,
+    "analysed": 6743
+  },
+  "by_source_dataset": {
+    "OpenStreetMap": 4459,
+    "Google Open Buildings": 1417,
+    "Microsoft ML Buildings": 867
+  },
+  "by_kind": {
+    "landed_house": 4925,
+    "commercial": 635,
+    "retail": 511,
+    "unknown": 192,
+    "apartment": 167,
+    "industrial": 112,
+    "education": 67,
+    "minor": 53,
+    "religious": 32,
+    "sports": 23,
+    "medical": 9,
+    "transport": 8,
+    "civic": 6,
+    "utility": 3
+  },
+  "by_kind_source": {
+    "overture_class": 4101,
+    "land_use": 1537,
+    "size": 934,
+    "place": 81,
+    "land_use_shape": 32,
+    "land_use_name": 24,
+    "overture_subtype": 24,
+    "building_name": 7,
+    "overture_class_weak": 3
+  },
+  "by_height_source": {
+    "type_rule": 6287,
+    "floors": 456
+  },
+  "by_role": {
+    "residential_programme": 4925,
+    "candidate": 1561,
+    "excluded": 257
+  },
+  "data_flags": {
+    "height_estimated": 6743,
+    "type_inferred": 2426,
+    "ml_footprint": 2284,
+    "type_unknown": 192,
+    "construction_zone": 52
+  },
+  "mean_height_confidence": 0.435,
+  "candidates": {
+    "count": 1561,
+    "roof_m2": 1266523,
+    "by_kind": {
+      "apartment": {
+        "count": 155,
+        "roof_m2": 329917
+      },
+      "civic": {
+        "count": 6,
+        "roof_m2": 9706
+      },
+      "commercial": {
+        "count": 545,
+        "roof_m2": 419811
+      },
+      "education": {
+        "count": 47,
+        "roof_m2": 41479
+      },
+      "industrial": {
+        "count": 64,
+        "roof_m2": 44702
+      },
+      "medical": {
+        "count": 8,
+        "roof_m2": 10793
+      },
+      "religious": {
+        "count": 23,
+        "roof_m2": 22155
+      },
+      "retail": {
+        "count": 501,
+        "roof_m2": 204007
+      },
+      "sports": {
+        "count": 12,
+        "roof_m2": 4429
+      },
+      "transport": {
+        "count": 8,
+        "roof_m2": 13964
+      },
+      "unknown": {
+        "count": 192,
+        "roof_m2": 165560
+      }
+    }
+  },
+  "residential_programme": {
+    "buildings": 4925,
+    "roof_m2": 882206
+  }
+}

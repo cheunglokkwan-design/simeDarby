@@ -1,0 +1,42 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "properties": {
+    "township": "Ara Damansara",
+    "method": "rectangle from the township config (no named outline in open data)",
+    "approximate": true,
+    "area_km2": 12.92,
+    "source_polygons": []
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       101.565,
+       3.095
+      ],
+      [
+       101.565,
+       3.125
+      ],
+      [
+       101.6,
+       3.125
+      ],
+      [
+       101.6,
+       3.095
+      ],
+      [
+       101.565,
+       3.095
+      ]
+     ]
+    ]
+   }
+  }
+ ]
+}

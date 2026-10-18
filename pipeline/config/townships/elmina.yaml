@@ -22,5 +22,9 @@ utm_epsg: 32647
 # outline, Elmina Crescent industrial, Elmina Business Park, neighbourhoods),
 # with interior holes filled. Replace with SDP's masterplan boundary when available.
 boundary:
+  method: land_use_names
   name_pattern: elmina
   buffer_m: 25
+
+# Map view for the web app (src/townships.js mirrors this).
+view: {longitude: 101.512, latitude: 3.196, zoom: 14.3}

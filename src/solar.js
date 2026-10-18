@@ -21,17 +21,17 @@ export const DEFAULT_ASSUMPTIONS = {
 // Fraction of footprint usable for panels (setbacks, plant, pitch, orientation).
 const USABLE_FRACTION = {
   residential: 0.45, apartments: 0.4, retail: 0.65, commercial: 0.6,
-  industrial: 0.75, institutional: 0.55, canopy: 0.8, carpark: 0.55, unknown: 0.5
+  industrial: 0.75, institutional: 0.55, canopy: 0.8, carpark: 0.55, utility: 0.5, unknown: 0.5
 };
 // Base-load intensity proxy (kWh per m2 of floor area per year).
 const DEMAND_INTENSITY = {
   residential: 45, apartments: 50, retail: 280, commercial: 220,
-  industrial: 250, institutional: 100, canopy: 0, carpark: 0, unknown: 80
+  industrial: 250, institutional: 100, canopy: 0, carpark: 0, utility: 0, unknown: 80
 };
 // Share of demand that happens in daylight (can be met directly by PV).
 const DAYTIME_SHARE = {
   residential: 0.35, apartments: 0.35, retail: 0.7, commercial: 0.75,
-  industrial: 0.75, institutional: 0.8, canopy: 0, carpark: 0, unknown: 0.5
+  industrial: 0.75, institutional: 0.8, canopy: 0, carpark: 0, utility: 0, unknown: 0.5
 };
 
 export function buildSites(raw) {
@@ -40,13 +40,18 @@ export function buildSites(raw) {
   const lat0 = all.reduce((s, b) => s + b.polygon[0][1], 0) / all.length;
   const proj = makeProjector(lon0, lat0);
 
+  // Features from the solar-mapper pipeline (public/data/*.json with `pipeline: true`) arrive
+  // already classified, with a modelled height and provenance; raw OSM features are
+  // classified here from their tags.
   const make = (f, isCarpark) => {
     const xy = f.polygon.map(proj.toXY);
-    const area = polygonArea(xy);
-    const category = isCarpark ? 'carpark' : classify(f.tags, area);
+    const area = f.footprintM2 ?? polygonArea(xy);
+    const category = isCarpark ? 'carpark' : f.category ?? classify(f.tags, area);
     const h = isCarpark
-      ? { height: 4.5, levels: 0, heightSource: 'Proposed solar canopy' }
-      : estimateHeight(f.tags, category, area);
+      ? { height: 4.5, levels: 0, heightSource: 'Proposed solar canopy', heightConfidence: 1 }
+      : f.height != null
+        ? { height: f.height, levels: f.levels, heightSource: f.heightSource, heightConfidence: f.heightConfidence }
+        : estimateHeight(f.tags, category, area);
     const c = polygonCentroid(xy);
     return {
       id: f.id,
@@ -57,6 +62,10 @@ export function buildSites(raw) {
       position: proj.toLonLat(c),
       area, category, categoryLabel: CATEGORY_LABEL[category],
       ...h,
+      kind: f.kind ?? null,
+      kindSource: f.kindSource ?? (f.tags.building && f.tags.building !== 'yes' ? 'OSM building tag' : 'OSM tags / size'),
+      footprintSource: f.footprintSource ?? 'OpenStreetMap',
+      dataFlags: f.dataFlags ?? [],
       shading: null
     };
   };
@@ -73,6 +82,9 @@ const tariffFor = (cat, a) =>
   : a.tariffCommercial;
 
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
+
+// Sites that belong in rankings and totals: big enough, and not a utility's asset.
+export const isViable = (s) => !s.flags.includes('Too small') && s.category !== 'utility';
 
 export function scoreSites(sites, a) {
   for (const s of sites) {
@@ -92,16 +104,17 @@ export function scoreSites(sites, a) {
     const flags = [];
     if (kwp < a.minKwp) flags.push('Too small');
     if (shading < 0.75) flags.push('Heavy shading');
-    if (s.tags.historic || /mosque|musalla|church|temple|religious/.test(s.tags.building || '') || s.tags.amenity === 'place_of_worship')
+    if (s.tags.historic || /mosque|musalla|church|temple|religious/.test(s.tags.building || '') || s.tags.amenity === 'place_of_worship' || s.kind === 'religious')
       flags.push('Zoning / heritage review');
     if (s.category === 'apartments') flags.push('Strata approval needed');
+    if (s.category === 'utility') flags.push('Utility asset (not SDP)');
 
     const genScore = clamp01((Math.log10(Math.max(kwh, 1)) - 3) / 4); // 1 MWh/yr -> 0, 10 GWh/yr -> 1
     const selfScore = kwh > 0 ? selfUse / kwh : 0;
     const payScore = clamp01((14 - payback) / 10);
     const score =
       100 * (0.4 * genScore + 0.25 * selfScore + 0.2 * payScore + 0.15 * shading) *
-      (flags.includes('Too small') ? 0.3 : flags.length ? 0.8 : 1);
+      (flags.includes('Too small') || s.category === 'utility' ? 0.3 : flags.length ? 0.8 : 1);
 
     Object.assign(s, {
       usable, kwp, kwh, demand, selfUse, exported, capex, savings, payback, co2,
@@ -131,7 +144,7 @@ export function microGridLinks(sites, community, maxDistM = 1500, perSite = 2) {
 }
 
 export function summarise(sites) {
-  const ok = sites.filter((s) => !s.flags.includes('Too small'));
+  const ok = sites.filter(isViable);
   const sum = (k, list = ok) => list.reduce((t, s) => t + s[k], 0);
   const carparks = ok.filter((s) => s.category === 'carpark');
   return {
@@ -151,12 +164,13 @@ export function toCSV(sites) {
     ['category', (s) => s.categoryLabel], ['longitude', (s) => s.position[0].toFixed(6)],
     ['latitude', (s) => s.position[1].toFixed(6)], ['footprint_m2', (s) => s.area.toFixed(0)],
     ['height_m', (s) => s.height.toFixed(1)], ['height_source', (s) => s.heightSource],
+    ['height_confidence', (s) => (s.heightConfidence ?? '').toString()], ['footprint_source', (s) => s.footprintSource],
     ['unshaded_fraction', (s) => (s.shading ?? 1).toFixed(2)], ['system_kwp', (s) => s.kwp.toFixed(1)],
     ['annual_kwh', (s) => s.kwh.toFixed(0)], ['self_consumption', (s) => s.selfRatio.toFixed(2)],
     ['capex_rm', (s) => s.capex.toFixed(0)], ['annual_savings_rm', (s) => s.savings.toFixed(0)],
     ['payback_years', (s) => (Number.isFinite(s.payback) ? s.payback.toFixed(1) : '')],
     ['co2_tonnes_per_year', (s) => s.co2.toFixed(1)], ['score', (s) => s.score.toFixed(0)],
-    ['flags', (s) => s.flags.join('; ')]
+    ['flags', (s) => s.flags.join('; ')], ['data_flags', (s) => s.dataFlags.join('; ')]
   ];
   const esc = (v) => (/[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : v);
   return [cols.map((c) => c[0]).join(','), ...sites.map((s, i) => cols.map(([, f]) => esc(f(s, i))).join(','))].join('\n');

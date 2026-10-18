@@ -1,0 +1,24 @@
+# Bandar Bukit Raja, Klang (Sime Darby Property)
+name: Bandar Bukit Raja
+slug: bandar-bukit-raja
+state: Selangor
+
+overture_release: "2026-09-23.1"
+
+bbox:
+  xmin: 101.405
+  xmax: 101.475
+  ymin: 3.07
+  ymax: 3.118
+
+utm_epsg: 32647
+
+# Overture (from OSM) has a land-use outline named "Bandar Bukit Raja" covering
+# 101.41-101.47 E, 3.076-3.112 N. The solar-demo rectangle (3.055-3.09 N) sat mostly south
+# of it, so the pipeline uses the mapped outline instead.
+boundary:
+  method: land_use_names
+  name_pattern: bandar bukit raja
+  buffer_m: 25
+
+view: {longitude: 101.44, latitude: 3.094, zoom: 14.4}

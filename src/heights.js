@@ -30,6 +30,7 @@ export const CATEGORY_LABEL = {
   institutional: 'Public / institutional',
   canopy: 'Canopy / outbuilding',
   carpark: 'Car park (canopy)',
+  utility: 'Utility asset (not SDP)',
   unknown: 'Unclassified'
 };
 
@@ -42,8 +43,12 @@ const DEFAULT_HEIGHT = {
   industrial: 11,
   institutional: 11,
   canopy: 4,
+  utility: 6.5,
   unknown: 8
 };
+
+// How far to trust each height source (same scale as the pipeline's height_confidence).
+const CONFIDENCE = { tag: 0.9, levels: 0.7, estimated: 0.3 };
 
 export function classify(tags, areaM2) {
   const b = tags.building;
@@ -66,11 +71,11 @@ const num = (v) => {
 
 export function estimateHeight(tags, category, areaM2) {
   const h = num(tags.height);
-  if (h) return { height: h, levels: Math.max(1, Math.round(h / STOREY_HEIGHT_M)), heightSource: 'OSM height tag' };
+  if (h) return { height: h, levels: Math.max(1, Math.round(h / STOREY_HEIGHT_M)), heightSource: 'OSM height tag', heightConfidence: CONFIDENCE.tag };
   const lv = num(tags['building:levels']);
-  if (lv) return { height: lv * STOREY_HEIGHT_M + 1, levels: Math.round(lv), heightSource: 'OSM levels tag' };
+  if (lv) return { height: lv * STOREY_HEIGHT_M + 1, levels: Math.round(lv), heightSource: 'OSM levels tag', heightConfidence: CONFIDENCE.levels };
   let height = DEFAULT_HEIGHT[category] ?? DEFAULT_HEIGHT.unknown;
   // Big-box industrial/retail sheds get a little taller with size.
   if ((category === 'industrial' || category === 'retail') && areaM2 > 8000) height += 3;
-  return { height, levels: Math.max(1, Math.round(height / STOREY_HEIGHT_M)), heightSource: 'Estimated from building type' };
+  return { height, levels: Math.max(1, Math.round(height / STOREY_HEIGHT_M)), heightSource: 'Estimated from building type', heightConfidence: CONFIDENCE.estimated };
 }
