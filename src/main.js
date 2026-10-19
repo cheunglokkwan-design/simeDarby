@@ -281,7 +281,8 @@ function renderAssumptions() {
     specificYield: 'Specific yield (kWh/kWp/yr)', panelDensity: 'Panel density (kWp/m²)',
     emissionFactor: 'Grid factor (kg CO₂/kWh)', tariffResidential: 'Tariff residential (RM/kWh)',
     tariffCommercial: 'Tariff commercial (RM/kWh)', tariffIndustrial: 'Tariff industrial (RM/kWh)',
-    exportRate: 'Export credit (RM/kWh)', capexSmall: 'CAPEX <50 kWp (RM/kWp)',
+    exportSMP: 'ATAP export price, SMP (RM/kWh)', atapCapKw: 'ATAP cap, non-domestic (kW)',
+    homeCapKw: 'ATAP cap, homes (kW)', loadFactor: 'Load factor (peak kW)', capexSmall: 'CAPEX <50 kWp (RM/kWp)',
     capexLarge: 'CAPEX ≥50 kWp (RM/kWp)', minKwp: 'Min. viable system (kWp)'
   };
   $('assumptions').innerHTML = Object.entries(labels)

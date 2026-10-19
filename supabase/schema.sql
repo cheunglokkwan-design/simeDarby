@@ -17,7 +17,10 @@ insert into public.assumptions (key, value, unit, source) values
   ('tariffResidential', 0.45, 'RM/kWh', 'Placeholder - verify current TNB tariff'),
   ('tariffCommercial', 0.50, 'RM/kWh', 'Placeholder - verify current TNB tariff'),
   ('tariffIndustrial', 0.42, 'RM/kWh', 'Placeholder - verify current TNB tariff'),
-  ('exportRate', 0.20, 'RM/kWh', 'Placeholder - verify NEM 3.0 export credit'),
+  ('exportSMP', 0.30, 'RM/kWh', 'ATAP System Marginal Price (vendors quote 25-35 sen) - verify monthly SMP'),
+  ('atapCapKw', 1000, 'kW', 'ATAP cap for non-domestic systems (1 MW)'),
+  ('homeCapKw', 15, 'kW', 'ATAP cap for domestic systems'),
+  ('loadFactor', 0.4, 'ratio', 'Converts annual demand to peak kW'),
   ('capexSmall', 4000, 'RM/kWp', 'Placeholder market rate < 50 kWp'),
   ('capexLarge', 2800, 'RM/kWp', 'Placeholder market rate >= 50 kWp'),
   ('minKwp', 3, 'kWp', 'Smallest system worth flagging')

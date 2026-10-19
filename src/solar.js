@@ -12,7 +12,10 @@ export const DEFAULT_ASSUMPTIONS = {
   tariffResidential: 0.45, // RM/kWh avoided (effective)
   tariffCommercial: 0.5,
   tariffIndustrial: 0.42,
-  exportRate: 0.2, // RM/kWh credited for exported energy
+  exportSMP: 0.3, // RM/kWh: ATAP (from 1 Jan 2026) pays exports at System Marginal Price, vendors quote 25-35 sen
+  atapCapKw: 1000, // ATAP cap per non-domestic system (1 MW)
+  homeCapKw: 15, // ATAP cap for domestic systems (5-15 kW band)
+  loadFactor: 0.4, // peak kW = annual kWh / (8760 h x load factor); turns demand into a peak
   capexSmall: 4000, // RM per kWp, systems < 50 kWp
   capexLarge: 2800, // RM per kWp, systems >= 50 kWp
   minKwp: 3
@@ -74,18 +77,30 @@ const tariffFor = (cat, a) =>
 
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
 
+// ATAP caps each system: homes at 15 kW; other systems at 1 MW or their peak
+// demand, whichever is lower. Car parks and canopies have no load of their
+// own, so only the 1 MW cap applies to them.
+export function atapCapKw(s, demand, a) {
+  if (s.category === 'residential') return a.homeCapKw;
+  if (s.category === 'carpark' || s.category === 'canopy') return a.atapCapKw;
+  const peakKw = demand / (8760 * a.loadFactor);
+  return Math.min(a.atapCapKw, peakKw);
+}
+
 export function scoreSites(sites, a) {
   for (const s of sites) {
     const shading = s.shading ?? 1;
     const usable = s.area * USABLE_FRACTION[s.category];
-    const kwp = usable * a.panelDensity;
-    const kwh = kwp * a.specificYield * shading;
     const floorArea = s.area * Math.max(1, s.levels);
     const demand = floorArea * DEMAND_INTENSITY[s.category];
+    const uncappedKwp = usable * a.panelDensity;
+    const kwp = Math.min(uncappedKwp, atapCapKw(s, demand, a));
+    const atapCapped = kwp < uncappedKwp;
+    const kwh = kwp * a.specificYield * shading;
     const selfUse = Math.min(kwh, demand * DAYTIME_SHARE[s.category]);
     const exported = kwh - selfUse;
     const capex = kwp * (kwp >= 50 ? a.capexLarge : a.capexSmall);
-    const savings = selfUse * tariffFor(s.category, a) + exported * a.exportRate;
+    const savings = selfUse * tariffFor(s.category, a) + exported * a.exportSMP;
     const payback = savings > 0 ? capex / savings : Infinity;
     const co2 = (kwh * a.emissionFactor) / 1000;
 
@@ -105,7 +120,7 @@ export function scoreSites(sites, a) {
 
     Object.assign(s, {
       usable, kwp, kwh, demand, selfUse, exported, capex, savings, payback, co2,
-      selfRatio: selfScore, flags, score
+      atapCapped, selfRatio: selfScore, flags, score
     });
   }
   return sites;
