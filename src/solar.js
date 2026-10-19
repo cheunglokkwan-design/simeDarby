@@ -16,6 +16,7 @@ export const DEFAULT_ASSUMPTIONS = {
   atapCapKw: 1000, // ATAP cap per non-domestic system (1 MW)
   homeCapKw: 15, // ATAP cap for domestic systems (5-15 kW band)
   loadFactor: 0.4, // peak kW = annual kWh / (8760 h x load factor); turns demand into a peak
+  gridMaxM: 1000, // flag sites further than this from a mapped substation
   capexSmall: 4000, // RM per kWp, systems < 50 kWp
   capexLarge: 2800, // RM per kWp, systems >= 50 kWp
   minKwp: 3
@@ -67,6 +68,18 @@ export function buildSites(raw) {
     ...raw.buildings.map((b) => make(b, false)).filter((s) => s.area >= 15),
     ...raw.parking.map((p) => make(p, true)).filter((s) => s.area >= 200)
   ];
+
+  // Grid check: straight-line distance to the nearest OSM-mapped substation.
+  const subs = raw.substations || [];
+  for (const s of sites) {
+    let best = null, bestD = Infinity;
+    for (const sub of subs) {
+      const d = distanceM(s.position, sub.position);
+      if (d < bestD) { bestD = d; best = sub; }
+    }
+    s.gridDistM = best ? bestD : null;
+    s.nearestSubstation = best ? best.name || best.id : null;
+  }
   return { sites, origin: [lon0, lat0] };
 }
 
@@ -76,6 +89,8 @@ const tariffFor = (cat, a) =>
   : a.tariffCommercial;
 
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
+
+export const GRID_FLAG = 'Far from mapped substation';
 
 // ATAP caps each system: homes at 15 kW; other systems at 1 MW or their peak
 // demand, whichever is lower. Car parks and canopies have no load of their
@@ -110,13 +125,17 @@ export function scoreSites(sites, a) {
     if (s.tags.historic || /mosque|musalla|church|temple|religious/.test(s.tags.building || '') || s.tags.amenity === 'place_of_worship')
       flags.push('Zoning / heritage review');
     if (s.category === 'apartments') flags.push('Strata approval needed');
+    // Shown but not scored: OSM substation coverage is patchy, so a missing
+    // substation is often a data gap rather than a real grid constraint.
+    if (s.gridDistM != null && s.gridDistM > a.gridMaxM) flags.push(GRID_FLAG);
 
     const genScore = clamp01((Math.log10(Math.max(kwh, 1)) - 3) / 4); // 1 MWh/yr -> 0, 10 GWh/yr -> 1
     const selfScore = kwh > 0 ? selfUse / kwh : 0;
     const payScore = clamp01((14 - payback) / 10);
+    const scored = flags.filter((f) => f !== GRID_FLAG);
     const score =
       100 * (0.4 * genScore + 0.25 * selfScore + 0.2 * payScore + 0.15 * shading) *
-      (flags.includes('Too small') ? 0.3 : flags.length ? 0.8 : 1);
+      (scored.includes('Too small') ? 0.3 : scored.length ? 0.8 : 1);
 
     Object.assign(s, {
       usable, kwp, kwh, demand, selfUse, exported, capex, savings, payback, co2,
@@ -167,6 +186,9 @@ export function toCSV(sites) {
     ['latitude', (s) => s.position[1].toFixed(6)], ['footprint_m2', (s) => s.area.toFixed(0)],
     ['height_m', (s) => s.height.toFixed(1)], ['height_source', (s) => s.heightSource],
     ['unshaded_fraction', (s) => (s.shading ?? 1).toFixed(2)], ['system_kwp', (s) => s.kwp.toFixed(1)],
+    ['atap_capped', (s) => (s.atapCapped ? 'yes' : 'no')],
+    ['substation_distance_m', (s) => (s.gridDistM == null ? '' : s.gridDistM.toFixed(0))],
+    ['nearest_substation', (s) => s.nearestSubstation || ''],
     ['annual_kwh', (s) => s.kwh.toFixed(0)], ['self_consumption', (s) => s.selfRatio.toFixed(2)],
     ['capex_rm', (s) => s.capex.toFixed(0)], ['annual_savings_rm', (s) => s.savings.toFixed(0)],
     ['payback_years', (s) => (Number.isFinite(s.payback) ? s.payback.toFixed(1) : '')],

@@ -1,7 +1,12 @@
 // Fetch and normalise OpenStreetMap data from the Overpass API.
 // Shared by the browser (live refresh) and scripts/fetch-osm.mjs (cached snapshot).
 
-const OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
+// Main instance first, then public mirrors (the main one often returns 502/504 under load).
+const OVERPASS_URLS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter'
+];
 
 const KEEP_TAGS = [
   'building', 'building:levels', 'height', 'roof:shape', 'roof:material', 'name',
@@ -18,18 +23,27 @@ export function buildQuery([s, w, n, e]) {
   way["amenity"="parking"](${bb});
   nwr["amenity"~"^(${COMMUNITY_RE})$"](${bb});
   nwr["healthcare"](${bb});
+  nwr["power"="substation"](${bb});
 );
 out tags geom;`;
 }
 
 export async function fetchOverpass(bbox, fetchImpl = fetch) {
-  const res = await fetchImpl(OVERPASS_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: 'data=' + encodeURIComponent(buildQuery(bbox))
-  });
-  if (!res.ok) throw new Error(`Overpass HTTP ${res.status}`);
-  return normalise(await res.json());
+  const errors = [];
+  for (const url of OVERPASS_URLS) {
+    try {
+      const res = await fetchImpl(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'data=' + encodeURIComponent(buildQuery(bbox))
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return normalise(await res.json());
+    } catch (err) {
+      errors.push(`${new URL(url).host}: ${err.message}`);
+    }
+  }
+  throw new Error(`All Overpass servers failed (${errors.join('; ')})`);
 }
 
 function pickTags(tags = {}) {
@@ -61,6 +75,7 @@ export function normalise(json) {
   const buildings = [];
   const parking = [];
   const community = [];
+  const substations = [];
   for (const el of json.elements || []) {
     const t = el.tags || {};
     const isCommunity =
@@ -69,6 +84,10 @@ export function normalise(json) {
       const c = centroidOf(el);
       if (c) community.push({ id: `${el.type}/${el.id}`, name: t.name || null, type: t.amenity || t.healthcare, position: c });
     }
+    if (t.power === 'substation') {
+      const c = centroidOf(el);
+      if (c) substations.push({ id: `${el.type}/${el.id}`, name: t.name || null, position: c });
+    }
     if (el.type !== 'way') continue;
     const polygon = ring(el.geometry);
     if (!polygon) continue;
@@ -76,5 +95,5 @@ export function normalise(json) {
     else if (t.amenity === 'parking' && t.parking !== 'underground' && t.parking !== 'multi-storey')
       parking.push({ id: `way/${el.id}`, tags: pickTags(t), polygon });
   }
-  return { fetchedAt: new Date().toISOString(), buildings, parking, community };
+  return { fetchedAt: new Date().toISOString(), buildings, parking, community, substations };
 }

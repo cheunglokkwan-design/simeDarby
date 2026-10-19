@@ -6,7 +6,7 @@ import { PolygonLayer, SolidPolygonLayer, ScatterplotLayer, ArcLayer } from '@de
 import { TOWNSHIPS } from './townships.js';
 import { fetchOverpass } from './osm.js';
 import { CATEGORY_LABEL } from './heights.js';
-import { DEFAULT_ASSUMPTIONS, buildSites, scoreSites, microGridLinks, summarise, toCSV } from './solar.js';
+import { DEFAULT_ASSUMPTIONS, GRID_FLAG, buildSites, scoreSites, microGridLinks, summarise, toCSV } from './solar.js';
 import { supabase, loadAssumptionOverrides, saveShortlist } from './supabase.js';
 
 const $ = (id) => document.getElementById(id);
@@ -25,6 +25,7 @@ const state = {
   shadows: true,
   carparks: true,
   microgrid: true,
+  substations: true,
   satellite: false,
   selected: null,
   shadingReady: false
@@ -184,12 +185,30 @@ function render() {
     );
   }
 
+  if (state.substations && state.raw.substations?.length) {
+    layers.push(
+      new ScatterplotLayer({
+        id: 'substations',
+        data: state.raw.substations,
+        getPosition: (d) => [...d.position, 15],
+        getRadius: 22,
+        radiusMinPixels: 5,
+        getFillColor: [190, 120, 255],
+        getLineColor: [255, 255, 255],
+        stroked: true,
+        lineWidthMinPixels: 1.5,
+        pickable: true
+      })
+    );
+  }
+
   overlay.setProps({ layers, effects: [lightingEffect()], onClick });
 }
 
 function getTooltip({ object, layer }) {
   if (!object) return null;
   if (layer.id === 'community') return { text: `${object.name || 'Community facility'}\n${object.type}` };
+  if (layer.id === 'substations') return { text: `Substation\n${object.name || object.id}` };
   if (layer.id === 'microgrid')
     return { text: `Micro-grid proposal\n${object.donor.name || object.donor.categoryLabel} → ${object.community.name || object.community.type}\n${(object.dist / 1000).toFixed(2)} km` };
   return {
@@ -252,7 +271,8 @@ function renderDetail() {
     ['Height', `${fmt(s.height, 1)} m <small>(${s.heightSource})</small>`],
     ['Usable roof', `${fmt(s.usable, 0)} m²`],
     ['Unshaded fraction', s.shading == null ? 'computing…' : `${fmt(s.shading * 100, 0)} %`],
-    ['System size', `${fmt(s.kwp, 1)} kWp`],
+    ['System size', `${fmt(s.kwp, 1)} kWp${s.atapCapped ? ' <small>(ATAP cap)</small>' : ''}`],
+    ['Nearest substation', s.gridDistM == null ? 'none mapped' : `${fmt(s.gridDistM, 0)} m <small>(${esc(s.nearestSubstation)})</small>`],
     ['Generation', `${fmt(s.kwh / 1000, 1)} MWh/yr`],
     ['Est. demand (proxy)', `${fmt(s.demand / 1000, 0)} MWh/yr`],
     ['Self-consumed', `${fmt(s.selfRatio * 100, 0)} %`],
@@ -266,7 +286,7 @@ function renderDetail() {
   el.innerHTML = `<button class="close" aria-label="Close">×</button>
     <h3>${esc(s.name || s.categoryLabel)}</h3>
     <div class="sub">${s.id} · ${lat.toFixed(5)}, ${lon.toFixed(5)}</div>
-    <div>${s.flags.length ? s.flags.map((f) => `<span class="flag">${f}</span>`).join('') : '<span class="flag ok">Passes engineering checks</span>'}</div>
+    <div>${s.flags.length ? s.flags.map((f) => `<span class="flag${f === GRID_FLAG ? ' info' : ''}" ${f === GRID_FLAG ? 'title="Not scored: OSM substation coverage is incomplete"' : ''}>${f}</span>`).join('') : '<span class="flag ok">Passes engineering checks</span>'}</div>
     <table>${rows.map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join('')}</table>
     <div class="actions">
       <a class="small" href="/splat.html?site=${encodeURIComponent(s.name || s.id)}" target="_blank"><button class="small">Micro-verify in 3D (splat)</button></a>
@@ -282,7 +302,8 @@ function renderAssumptions() {
     emissionFactor: 'Grid factor (kg CO₂/kWh)', tariffResidential: 'Tariff residential (RM/kWh)',
     tariffCommercial: 'Tariff commercial (RM/kWh)', tariffIndustrial: 'Tariff industrial (RM/kWh)',
     exportSMP: 'ATAP export price, SMP (RM/kWh)', atapCapKw: 'ATAP cap, non-domestic (kW)',
-    homeCapKw: 'ATAP cap, homes (kW)', loadFactor: 'Load factor (peak kW)', capexSmall: 'CAPEX <50 kWp (RM/kWp)',
+    homeCapKw: 'ATAP cap, homes (kW)', loadFactor: 'Load factor (peak kW)',
+    gridMaxM: 'Max. substation distance (m)', capexSmall: 'CAPEX <50 kWp (RM/kWp)',
     capexLarge: 'CAPEX ≥50 kWp (RM/kWp)', minKwp: 'Min. viable system (kWp)'
   };
   $('assumptions').innerHTML = Object.entries(labels)
@@ -376,7 +397,7 @@ function bindControls() {
     tick();
   };
 
-  for (const k of ['shadows', 'carparks', 'microgrid']) $(k).onchange = (e) => { state[k] = e.target.checked; render(); };
+  for (const k of ['shadows', 'carparks', 'microgrid', 'substations']) $(k).onchange = (e) => { state[k] = e.target.checked; render(); };
   $('satellite').onchange = (e) => { state.satellite = e.target.checked; map.setStyle(state.satellite ? SATELLITE_STYLE : DARK_STYLE); };
   $('colorBy').onchange = (e) => { state.colorBy = e.target.value; renderLegend(); render(); };
 

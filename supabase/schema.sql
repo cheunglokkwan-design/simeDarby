@@ -21,6 +21,7 @@ insert into public.assumptions (key, value, unit, source) values
   ('atapCapKw', 1000, 'kW', 'ATAP cap for non-domestic systems (1 MW)'),
   ('homeCapKw', 15, 'kW', 'ATAP cap for domestic systems'),
   ('loadFactor', 0.4, 'ratio', 'Converts annual demand to peak kW'),
+  ('gridMaxM', 1000, 'm', 'Flag sites further than this from a mapped substation'),
   ('capexSmall', 4000, 'RM/kWp', 'Placeholder market rate < 50 kWp'),
   ('capexLarge', 2800, 'RM/kWp', 'Placeholder market rate >= 50 kWp'),
   ('minKwp', 3, 'kWp', 'Smallest system worth flagging')
