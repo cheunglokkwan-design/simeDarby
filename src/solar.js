@@ -6,7 +6,7 @@ import { classify, estimateHeight, CATEGORY_LABEL } from './heights.js';
 // from the Supabase `assumptions` table. Verify against TNB / SEDA / Suruhanjaya
 // Tenaga sources before quoting them in the pitch.
 export const DEFAULT_ASSUMPTIONS = {
-  specificYield: 1350, // kWh per kWp per year, Klang Valley typical
+  specificYield: 1350, // kWh/kWp/yr fallback, used only if the pvlib yield file is missing
   panelDensity: 0.18, // kWp per m2 of usable roof (incl. spacing)
   emissionFactor: 0.758, // kg CO2 per kWh, Peninsular Malaysia grid
   tariffResidential: 0.45, // RM/kWh avoided (effective)
@@ -17,6 +17,16 @@ export const DEFAULT_ASSUMPTIONS = {
   homeCapKw: 15, // ATAP cap for domestic systems (5-15 kW band)
   loadFactor: 0.4, // peak kW = annual kWh / (8760 h x load factor); turns demand into a peak
   gridMaxM: 1000, // flag sites further than this from a mapped substation
+  // CREAM (community renewable energy aggregation)
+  accessCharge: 0.09, // RM/kWh TNB network access charge (cut from 15 to 9 sen, Sept 2025)
+  creamDiscount: 0.1, // buyers pay the aggregator their grid tariff minus this share
+  leasePerRoof: 300, // RM/yr paid to each homeowner (placeholder, not a quoted rate)
+  creamRadiusKm: 5, // buyers must be within this distance
+  creamMinHomes: 15, // smallest cluster worth aggregating
+  // Battery storage (verify charges against TNB's schedule before quoting)
+  capacityCharge: 29.43, // RM per kW per month, medium voltage (secondary source)
+  networkCharge: 59.84, // RM per kW per month, medium voltage (secondary source)
+  batteryCapexPerKwh: 1800, // RM per kWh installed, LFP containerised (placeholder)
   capexSmall: 4000, // RM per kWp, systems < 50 kWp
   capexLarge: 2800, // RM per kWp, systems >= 50 kWp
   minKwp: 3
@@ -33,10 +43,43 @@ const DEMAND_INTENSITY = {
   industrial: 250, institutional: 100, canopy: 0, carpark: 0, unknown: 80
 };
 // Share of demand that happens in daylight (can be met directly by PV).
-const DAYTIME_SHARE = {
+export const DAYTIME_SHARE = {
   residential: 0.35, apartments: 0.35, retail: 0.7, commercial: 0.75,
   industrial: 0.75, institutional: 0.8, canopy: 0, carpark: 0, unknown: 0.5
 };
+
+// Azimuths (deg from north) of the two roof faces perpendicular to the
+// footprint's longest edge: a gable roof's two pitches, or east-west style
+// racking on a flat roof aligned with the building.
+function longEdgeNormals(xy) {
+  let best = 0, bearing = 0;
+  for (let i = 0; i < xy.length - 1; i++) {
+    const dx = xy[i + 1][0] - xy[i][0], dy = xy[i + 1][1] - xy[i][1];
+    const len = dx * dx + dy * dy;
+    if (len > best) { best = len; bearing = (Math.atan2(dx, dy) * 180) / Math.PI; }
+  }
+  const n = (((bearing + 90) % 360) + 360) % 360;
+  return [n, (n + 180) % 360];
+}
+
+function interpAzimuth(table, az, key) {
+  const steps = Object.keys(table).map(Number).sort((x, y) => x - y);
+  const step = 360 / steps.length;
+  const i = Math.floor(az / step) % steps.length, f = (az - i * step) / step;
+  const v0 = table[String(steps[i])][key], v1 = table[String(steps[(i + 1) % steps.length])][key];
+  return v0 + (v1 - v0) * f;
+}
+
+// Specific yield for a roof from the pvlib table: 20 deg flush mount for
+// pitched home roofs, 10 deg racking for everything else, averaged over both faces.
+export function siteYield(s, yieldData, a) {
+  if (!yieldData) return { p50: a.specificYield, p90: a.specificYield * 0.95, tilt: null };
+  const tilt = s.category === 'residential' ? '20' : '10';
+  const t = yieldData.yield[tilt];
+  const [n1, n2] = s.roofNormals;
+  const avg = (k) => (interpAzimuth(t, n1, k) + interpAzimuth(t, n2, k)) / 2;
+  return { p50: avg('p50'), p90: avg('p90'), tilt: +tilt };
+}
 
 export function buildSites(raw) {
   const all = [...raw.buildings, ...raw.parking];
@@ -53,6 +96,7 @@ export function buildSites(raw) {
       : estimateHeight(f.tags, category, area);
     const c = polygonCentroid(xy);
     return {
+      roofNormals: longEdgeNormals(xy),
       id: f.id,
       name: f.tags.name || null,
       tags: f.tags,
@@ -102,7 +146,9 @@ export function atapCapKw(s, demand, a) {
   return Math.min(a.atapCapKw, peakKw);
 }
 
-export function scoreSites(sites, a) {
+export function scoreSites(sites, a, yieldData = null) {
+  const lifeYears = yieldData?.model.lifetimeYears ?? 25;
+  const lifeFactor = yieldData?.lifetimeFactor ?? 0.94; // 0.5 %/yr degradation
   for (const s of sites) {
     const shading = s.shading ?? 1;
     const usable = s.area * USABLE_FRACTION[s.category];
@@ -111,7 +157,10 @@ export function scoreSites(sites, a) {
     const uncappedKwp = usable * a.panelDensity;
     const kwp = Math.min(uncappedKwp, atapCapKw(s, demand, a));
     const atapCapped = kwp < uncappedKwp;
-    const kwh = kwp * a.specificYield * shading;
+    const y = siteYield(s, yieldData, a);
+    const kwh = kwp * y.p50 * shading;
+    const kwhP90 = kwp * y.p90 * shading;
+    const lifetimeKwh = kwh * lifeYears * lifeFactor;
     const selfUse = Math.min(kwh, demand * DAYTIME_SHARE[s.category]);
     const exported = kwh - selfUse;
     const capex = kwp * (kwp >= 50 ? a.capexLarge : a.capexSmall);
@@ -139,7 +188,8 @@ export function scoreSites(sites, a) {
 
     Object.assign(s, {
       usable, kwp, kwh, demand, selfUse, exported, capex, savings, payback, co2,
-      atapCapped, selfRatio: selfScore, flags, score
+      atapCapped, kwhP90, lifetimeKwh, specificYield: y.p50, yieldP90: y.p90, yieldTilt: y.tilt,
+      selfRatio: selfScore, flags, score
     });
   }
   return sites;
@@ -189,7 +239,9 @@ export function toCSV(sites) {
     ['atap_capped', (s) => (s.atapCapped ? 'yes' : 'no')],
     ['substation_distance_m', (s) => (s.gridDistM == null ? '' : s.gridDistM.toFixed(0))],
     ['nearest_substation', (s) => s.nearestSubstation || ''],
-    ['annual_kwh', (s) => s.kwh.toFixed(0)], ['self_consumption', (s) => s.selfRatio.toFixed(2)],
+    ['specific_yield_p50', (s) => s.specificYield.toFixed(0)], ['specific_yield_p90', (s) => s.yieldP90.toFixed(0)],
+    ['annual_kwh_p50', (s) => s.kwh.toFixed(0)], ['annual_kwh_p90', (s) => s.kwhP90.toFixed(0)],
+    ['lifetime_kwh_25yr', (s) => s.lifetimeKwh.toFixed(0)], ['self_consumption', (s) => s.selfRatio.toFixed(2)],
     ['capex_rm', (s) => s.capex.toFixed(0)], ['annual_savings_rm', (s) => s.savings.toFixed(0)],
     ['payback_years', (s) => (Number.isFinite(s.payback) ? s.payback.toFixed(1) : '')],
     ['co2_tonnes_per_year', (s) => s.co2.toFixed(1)], ['score', (s) => s.score.toFixed(0)],

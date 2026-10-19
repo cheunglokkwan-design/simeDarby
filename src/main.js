@@ -7,6 +7,8 @@ import { TOWNSHIPS } from './townships.js';
 import { fetchOverpass } from './osm.js';
 import { CATEGORY_LABEL } from './heights.js';
 import { DEFAULT_ASSUMPTIONS, GRID_FLAG, buildSites, scoreSites, microGridLinks, summarise, toCSV } from './solar.js';
+import { planCream } from './cream.js';
+import { planStorage } from './storage.js';
 import { supabase, loadAssumptionOverrides, saveShortlist } from './supabase.js';
 
 const $ = (id) => document.getElementById(id);
@@ -26,6 +28,12 @@ const state = {
   carparks: true,
   microgrid: true,
   substations: true,
+  creamLayer: true,
+  cream: null,
+  storageLayer: true,
+  storage: [],
+  yieldData: null,
+  storageData: null,
   satellite: false,
   selected: null,
   shadingReady: false
@@ -185,6 +193,52 @@ function render() {
     );
   }
 
+  if (state.creamLayer && state.cream?.clusters.length) {
+    const links = state.cream.clusters.flatMap((c) => c.buyers.slice(0, 4).map((b) => ({ c, b })));
+    layers.push(
+      new ArcLayer({
+        id: 'cream-links',
+        data: links,
+        getSourcePosition: (d) => [...d.c.position, 8],
+        getTargetPosition: (d) => [...d.b.site.position, d.b.site.height + 2],
+        getSourceColor: [120, 200, 255, 200],
+        getTargetColor: [255, 255, 255, 160],
+        getWidth: 1.5,
+        getHeight: 0.4,
+        pickable: true
+      }),
+      new ScatterplotLayer({
+        id: 'cream',
+        data: state.cream.clusters,
+        getPosition: (d) => [...d.position, 10],
+        getRadius: (d) => 40 + Math.sqrt(d.homes.length) * 6,
+        radiusMinPixels: 6,
+        getFillColor: [120, 200, 255, 120],
+        getLineColor: [120, 200, 255],
+        stroked: true,
+        lineWidthMinPixels: 2,
+        pickable: true
+      })
+    );
+  }
+
+  if (state.storageLayer && state.storage.length) {
+    layers.push(
+      new ScatterplotLayer({
+        id: 'storage',
+        data: state.storage,
+        getPosition: (d) => [...d.site.position, d.site.height + 3],
+        getRadius: (d) => 12 + Math.sqrt(d.kwh) * 0.8,
+        radiusMinPixels: 5,
+        getFillColor: [255, 120, 60, 220],
+        getLineColor: [255, 230, 200],
+        stroked: true,
+        lineWidthMinPixels: 1.5,
+        pickable: true
+      })
+    );
+  }
+
   if (state.substations && state.raw.substations?.length) {
     layers.push(
       new ScatterplotLayer({
@@ -209,6 +263,12 @@ function getTooltip({ object, layer }) {
   if (!object) return null;
   if (layer.id === 'community') return { text: `${object.name || 'Community facility'}\n${object.type}` };
   if (layer.id === 'substations') return { text: `Substation\n${object.name || object.id}` };
+  if (layer.id === 'storage')
+    return { text: `Battery candidate: ${object.site.name || object.site.categoryLabel}\n${fmt(object.kw, 0)} kW / ${fmt(object.kwh, 0)} kWh · cuts peak ${fmt(object.peakCutKw, 0)} kW\nRM ${fmt(object.value / 1000, 0)}k/yr · ${fmt(object.payback, 1)} yr payback` };
+  if (layer.id === 'cream')
+    return { text: `CREAM cluster ${object.id}\n${object.homes.length} homes · ${fmt(object.kwp / 1000, 1)} MWp\n${fmt(object.matchedKwh / 1e6, 2)} GWh/yr sold to ${object.buyers.length} buyers` };
+  if (layer.id === 'cream-links')
+    return { text: `CREAM ${object.c.id} → ${object.b.site.name || object.b.site.categoryLabel}\n${fmt(object.b.kwh / 1000, 0)} MWh/yr · ${(object.b.dist / 1000).toFixed(1)} km` };
   if (layer.id === 'microgrid')
     return { text: `Micro-grid proposal\n${object.donor.name || object.donor.categoryLabel} → ${object.community.name || object.community.type}\n${(object.dist / 1000).toFixed(2)} km` };
   return {
@@ -217,6 +277,7 @@ function getTooltip({ object, layer }) {
 }
 
 function onClick({ object, layer }) {
+  if (object && layer?.id === 'storage') return select(object.site, false);
   if (!object || !['buildings', 'carparks'].includes(layer?.id)) return;
   select(object, false);
 }
@@ -273,7 +334,9 @@ function renderDetail() {
     ['Unshaded fraction', s.shading == null ? 'computing…' : `${fmt(s.shading * 100, 0)} %`],
     ['System size', `${fmt(s.kwp, 1)} kWp${s.atapCapped ? ' <small>(ATAP cap)</small>' : ''}`],
     ['Nearest substation', s.gridDistM == null ? 'none mapped' : `${fmt(s.gridDistM, 0)} m <small>(${esc(s.nearestSubstation)})</small>`],
-    ['Generation', `${fmt(s.kwh / 1000, 1)} MWh/yr`],
+    ['Specific yield', `${fmt(s.specificYield, 0)} kWh/kWp <small>(P90 ${fmt(s.yieldP90, 0)}${s.yieldTilt ? `, ${s.yieldTilt}° tilt` : ', assumed'})</small>`],
+    ['Generation', `${fmt(s.kwh / 1000, 1)} MWh/yr <small>(P90 ${fmt(s.kwhP90 / 1000, 1)})</small>`],
+    ['25-year generation', `${fmt(s.lifetimeKwh / 1e6, 2)} GWh <small>(0.5%/yr degradation)</small>`],
     ['Est. demand (proxy)', `${fmt(s.demand / 1000, 0)} MWh/yr`],
     ['Self-consumed', `${fmt(s.selfRatio * 100, 0)} %`],
     ['CAPEX', `RM ${fmt(s.capex, 0)}`],
@@ -282,6 +345,16 @@ function renderDetail() {
     ['CO₂ avoided', `${fmt(s.co2, 1)} t/yr`],
     ['Opportunity score', `<b>${s.score.toFixed(0)}</b> / 100`]
   ];
+  const b = state.storage.find((x) => x.site === s);
+  if (b)
+    rows.push(
+      ['<b>Battery (PySAM)</b>', `${fmt(b.kw, 0)} kW / ${fmt(b.kwh, 0)} kWh`],
+      ['Monthly peak cut', `${fmt(b.peakCutKw, 0)} kW of ${fmt(b.peakKw, 0)} kW`],
+      ['Battery value', `RM ${fmt(b.value, 0)}/yr`],
+      ['Battery payback', `${fmt(b.payback, 1)} years`],
+      ['Siting: grid', b.checks.grid], ['Siting: flood', b.checks.flood],
+      ['Siting: fire', b.checks.fire], ['Siting: space', b.checks.space]
+    );
   const [lon, lat] = s.position;
   el.innerHTML = `<button class="close" aria-label="Close">×</button>
     <h3>${esc(s.name || s.categoryLabel)}</h3>
@@ -298,12 +371,17 @@ function renderDetail() {
 
 function renderAssumptions() {
   const labels = {
-    specificYield: 'Specific yield (kWh/kWp/yr)', panelDensity: 'Panel density (kWp/m²)',
+    specificYield: 'Fallback yield if no pvlib file (kWh/kWp/yr)', panelDensity: 'Panel density (kWp/m²)',
     emissionFactor: 'Grid factor (kg CO₂/kWh)', tariffResidential: 'Tariff residential (RM/kWh)',
     tariffCommercial: 'Tariff commercial (RM/kWh)', tariffIndustrial: 'Tariff industrial (RM/kWh)',
     exportSMP: 'ATAP export price, SMP (RM/kWh)', atapCapKw: 'ATAP cap, non-domestic (kW)',
     homeCapKw: 'ATAP cap, homes (kW)', loadFactor: 'Load factor (peak kW)',
-    gridMaxM: 'Max. substation distance (m)', capexSmall: 'CAPEX <50 kWp (RM/kWp)',
+    gridMaxM: 'Max. substation distance (m)', accessCharge: 'CREAM access charge (RM/kWh)',
+    creamDiscount: 'CREAM buyer discount (share)', leasePerRoof: 'CREAM lease per roof (RM/yr)',
+    creamRadiusKm: 'CREAM buyer radius (km)', creamMinHomes: 'CREAM min. homes per cluster',
+    capacityCharge: 'Capacity charge (RM/kW/month)', networkCharge: 'Network charge (RM/kW/month)',
+    batteryCapexPerKwh: 'Battery CAPEX (RM/kWh)',
+    capexSmall: 'CAPEX <50 kWp (RM/kWp)',
     capexLarge: 'CAPEX ≥50 kWp (RM/kWp)', minKwp: 'Min. viable system (kWp)'
   };
   $('assumptions').innerHTML = Object.entries(labels)
@@ -316,9 +394,47 @@ $('assumptions').addEventListener('change', (e) => {
   if (k && Number.isFinite(v)) { state.assumptions[k] = v; recompute(); }
 });
 
+function renderCream() {
+  const { clusters, totals: t } = state.cream;
+  if (!clusters.length) { $('cream').innerHTML = '<p class="note">No home clusters large enough in this township.</p>'; return; }
+  $('cream').innerHTML = `
+    <p class="note">${t.clusters} clusters · ${fmt(t.homes, 0)} landed homes · ${fmt(t.kwp / 1000, 1)} MWp ·
+      ${fmt((100 * t.matchedKwh) / t.kwh, 0)}% sold to buyers within ${state.assumptions.creamRadiusKm} km ·
+      RM ${fmt(t.leaseIncome / 1e6, 2)}M/yr homeowner lease income</p>
+    <table class="cream"><tr><th>Cluster</th><th>Homes</th><th>MWp</th><th>Buyers</th><th>Payback</th></tr>
+    ${clusters.slice(0, 8).map((c, i) => `<tr data-i="${i}"><td>${c.id}</td><td>${c.homes.length}</td><td>${fmt(c.kwp / 1000, 1)}</td><td>${c.buyers.length}</td><td>${fmt(c.payback, 1)} yr</td></tr>`).join('')}
+    </table>`;
+}
+$('cream').addEventListener('click', (e) => {
+  const tr = e.target.closest('tr[data-i]');
+  if (tr) map.flyTo({ center: state.cream.clusters[+tr.dataset.i].position, zoom: 16, pitch: 55, duration: 1500 });
+});
+
+function renderStorage() {
+  const list = state.storage;
+  if (!state.storageData) { $('storage').innerHTML = '<p class="note">No PySAM results for this township (run scripts/pysam_storage.py).</p>'; return; }
+  if (!list.length) { $('storage').innerHTML = '<p class="note">No sites with surplus solar and a large enough peak.</p>'; return; }
+  const totKw = list.reduce((t, b) => t + b.kw, 0), totKwh = list.reduce((t, b) => t + b.kwh, 0);
+  const cut = list.reduce((t, b) => t + b.peakCutKw, 0), value = list.reduce((t, b) => t + b.value, 0);
+  $('storage').innerHTML = `
+    <p class="note">${list.length} candidates · ${fmt(totKw / 1000, 1)} MW / ${fmt(totKwh / 1000, 1)} MWh ·
+      cuts ${fmt(cut / 1000, 2)} MW of monthly peaks · RM ${fmt(value / 1e6, 2)}M/yr. An editable scenario: check the per-kW charges against TNB's schedule.</p>
+    <table class="cream"><tr><th>Site</th><th>kW / kWh</th><th>Peak cut</th><th>Payback</th></tr>
+    ${list.slice(0, 8).map((b, i) => `<tr data-i="${i}"><td>${esc(b.site.name || b.site.categoryLabel)}</td><td>${fmt(b.kw, 0)} / ${fmt(b.kwh, 0)}</td><td>${fmt(b.peakCutKw, 0)} kW</td><td>${fmt(b.payback, 1)} yr</td></tr>`).join('')}
+    </table>`;
+}
+$('storage').addEventListener('click', (e) => {
+  const tr = e.target.closest('tr[data-i]');
+  if (tr) select(state.storage[+tr.dataset.i].site, true);
+});
+
 function recompute() {
-  scoreSites(state.sites, state.assumptions);
+  scoreSites(state.sites, state.assumptions, state.yieldData);
   state.links = microGridLinks(state.sites, state.raw.community);
+  state.cream = planCream(state.sites, state.assumptions);
+  state.storage = planStorage(state.sites, state.assumptions, state.storageData);
+  renderCream();
+  renderStorage();
   renderKPIs();
   renderRanking();
   renderDetail();
@@ -341,7 +457,8 @@ function runShading() {
     if (data.done) {
       data.result.forEach((v, i) => (state.sites[i].shading = state.sites[i].category === 'carpark' ? 0.95 : v));
       state.shadingReady = true;
-      setStatus(`${state.sites.length.toLocaleString()} sites · shading raycast done in ${((performance.now() - t0) / 1000).toFixed(1)} s · OSM snapshot ${state.raw.fetchedAt.slice(0, 10)}`);
+      setStatus(`${state.sites.length.toLocaleString()} sites · shading raycast done in ${((performance.now() - t0) / 1000).toFixed(1)} s · OSM snapshot ${state.raw.fetchedAt.slice(0, 10)}` +
+        (state.yieldData ? ` · yield: pvlib + PVGIS-ERA5 ${state.yieldData.source.match(/\d{4}-\d{4}/)?.[0] ?? ''}` : ' · yield: fallback assumption'));
       recompute();
     }
   };
@@ -355,9 +472,12 @@ async function loadTownship(id, live = false) {
   renderDetail();
   const t = TOWNSHIPS[id];
   setStatus(live ? 'Fetching live data from OpenStreetMap…' : 'Loading OSM snapshot…');
-  state.raw = live
-    ? await fetchOverpass(t.bbox)
-    : await fetch(`${import.meta.env.BASE_URL}data/${id}.json`).then((r) => r.json());
+  const optional = (name) => fetch(`${import.meta.env.BASE_URL}data/${name}-${id}.json`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  [state.raw, state.yieldData, state.storageData] = await Promise.all([
+    live ? fetchOverpass(t.bbox) : fetch(`${import.meta.env.BASE_URL}data/${id}.json`).then((r) => r.json()),
+    optional('yield'),
+    optional('storage')
+  ]);
   const { sites, origin } = buildSites(state.raw);
   state.sites = sites;
   state.origin = origin;
@@ -397,7 +517,7 @@ function bindControls() {
     tick();
   };
 
-  for (const k of ['shadows', 'carparks', 'microgrid', 'substations']) $(k).onchange = (e) => { state[k] = e.target.checked; render(); };
+  for (const k of ['shadows', 'carparks', 'microgrid', 'substations', 'creamLayer', 'storageLayer']) $(k).onchange = (e) => { state[k] = e.target.checked; render(); };
   $('satellite').onchange = (e) => { state.satellite = e.target.checked; map.setStyle(state.satellite ? SATELLITE_STYLE : DARK_STYLE); };
   $('colorBy').onchange = (e) => { state.colorBy = e.target.value; renderLegend(); render(); };
 

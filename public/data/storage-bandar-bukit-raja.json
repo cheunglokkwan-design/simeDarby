@@ -1,0 +1,176 @@
+{
+ "township": "bandar-bukit-raja",
+ "source": "NREL PySAM 7.1.1.post1 Battery (CustomGenerationBatteryCommercial, peak shaving look-ahead), PV from pvlib 0.16.1 + PVGIS-ERA5 hourly 2005-2023 (JRC), synthetic load archetypes",
+ "durationH": 4,
+ "pvRatios": [
+  0.25,
+  0.5,
+  1.0
+ ],
+ "bessRatios": [
+  0.1,
+  0.2,
+  0.3
+ ],
+ "archetypes": {
+  "retail": {
+   "0.25": {
+    "0.1": {
+     "peakCutKwPerKwPeak": 0.0483,
+     "pvShiftedKwhPerKwPeak": 0.0,
+     "cycles": 71.0
+    },
+    "0.2": {
+     "peakCutKwPerKwPeak": 0.0653,
+     "pvShiftedKwhPerKwPeak": 0.0,
+     "cycles": 93.0
+    },
+    "0.3": {
+     "peakCutKwPerKwPeak": 0.0666,
+     "pvShiftedKwhPerKwPeak": 0.0,
+     "cycles": 116.0
+    }
+   },
+   "0.5": {
+    "0.1": {
+     "peakCutKwPerKwPeak": 0.0565,
+     "pvShiftedKwhPerKwPeak": 0.0,
+     "cycles": 77.0
+    },
+    "0.2": {
+     "peakCutKwPerKwPeak": 0.0795,
+     "pvShiftedKwhPerKwPeak": 0.0,
+     "cycles": 111.0
+    },
+    "0.3": {
+     "peakCutKwPerKwPeak": 0.0989,
+     "pvShiftedKwhPerKwPeak": 0.0,
+     "cycles": 133.0
+    }
+   },
+   "1.0": {
+    "0.1": {
+     "peakCutKwPerKwPeak": 0.0634,
+     "pvShiftedKwhPerKwPeak": 0.0,
+     "cycles": 88.0
+    },
+    "0.2": {
+     "peakCutKwPerKwPeak": 0.0979,
+     "pvShiftedKwhPerKwPeak": 0.0,
+     "cycles": 132.0
+    },
+    "0.3": {
+     "peakCutKwPerKwPeak": 0.1291,
+     "pvShiftedKwhPerKwPeak": 0.0,
+     "cycles": 153.0
+    }
+   }
+  },
+  "commercial": {
+   "0.25": {
+    "0.1": {
+     "peakCutKwPerKwPeak": 0.0575,
+     "pvShiftedKwhPerKwPeak": 0.0,
+     "cycles": 71.0
+    },
+    "0.2": {
+     "peakCutKwPerKwPeak": 0.0753,
+     "pvShiftedKwhPerKwPeak": 0.0,
+     "cycles": 88.0
+    },
+    "0.3": {
+     "peakCutKwPerKwPeak": 0.0213,
+     "pvShiftedKwhPerKwPeak": 0.0,
+     "cycles": 68.0
+    }
+   },
+   "0.5": {
+    "0.1": {
+     "peakCutKwPerKwPeak": 0.0718,
+     "pvShiftedKwhPerKwPeak": 0.0,
+     "cycles": 63.0
+    },
+    "0.2": {
+     "peakCutKwPerKwPeak": 0.0584,
+     "pvShiftedKwhPerKwPeak": 0.6,
+     "cycles": 79.0
+    },
+    "0.3": {
+     "peakCutKwPerKwPeak": 0.027,
+     "pvShiftedKwhPerKwPeak": 7.0,
+     "cycles": 77.0
+    }
+   },
+   "1.0": {
+    "0.1": {
+     "peakCutKwPerKwPeak": 0.0909,
+     "pvShiftedKwhPerKwPeak": 0.4,
+     "cycles": 68.0
+    },
+    "0.2": {
+     "peakCutKwPerKwPeak": 0.1434,
+     "pvShiftedKwhPerKwPeak": 0.9,
+     "cycles": 83.0
+    },
+    "0.3": {
+     "peakCutKwPerKwPeak": 0.1544,
+     "pvShiftedKwhPerKwPeak": 1.8,
+     "cycles": 90.0
+    }
+   }
+  },
+  "industrial": {
+   "0.25": {
+    "0.1": {
+     "peakCutKwPerKwPeak": 0.0354,
+     "pvShiftedKwhPerKwPeak": 0.0,
+     "cycles": 173.0
+    },
+    "0.2": {
+     "peakCutKwPerKwPeak": 0.0565,
+     "pvShiftedKwhPerKwPeak": 0.0,
+     "cycles": 171.0
+    },
+    "0.3": {
+     "peakCutKwPerKwPeak": 0.0545,
+     "pvShiftedKwhPerKwPeak": 0.0,
+     "cycles": 173.0
+    }
+   },
+   "0.5": {
+    "0.1": {
+     "peakCutKwPerKwPeak": 0.0406,
+     "pvShiftedKwhPerKwPeak": 0.0,
+     "cycles": 177.0
+    },
+    "0.2": {
+     "peakCutKwPerKwPeak": 0.0736,
+     "pvShiftedKwhPerKwPeak": 0.0,
+     "cycles": 178.0
+    },
+    "0.3": {
+     "peakCutKwPerKwPeak": 0.1013,
+     "pvShiftedKwhPerKwPeak": 0.0,
+     "cycles": 177.0
+    }
+   },
+   "1.0": {
+    "0.1": {
+     "peakCutKwPerKwPeak": 0.0454,
+     "pvShiftedKwhPerKwPeak": 0.0,
+     "cycles": 181.0
+    },
+    "0.2": {
+     "peakCutKwPerKwPeak": 0.0847,
+     "pvShiftedKwhPerKwPeak": 0.0,
+     "cycles": 184.0
+    },
+    "0.3": {
+     "peakCutKwPerKwPeak": 0.1192,
+     "pvShiftedKwhPerKwPeak": 0.0,
+     "cycles": 183.0
+    }
+   }
+  }
+ }
+}

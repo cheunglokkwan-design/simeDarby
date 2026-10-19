@@ -59,6 +59,12 @@ button.small:hover { border-color: var(--accent); }
 #ranking .meta { color: var(--muted); font-variant-numeric: tabular-nums; }
 #ranking .score { float: right; color: var(--accent); font-weight: 600; }
 
+table.cream { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+table.cream th { text-align: left; color: var(--muted); font-weight: 500; padding: 2px; }
+table.cream td { padding: 3px 2px; border-top: 1px solid var(--line); }
+table.cream tr[data-i] { cursor: pointer; }
+table.cream tr[data-i]:hover { background: #232a38; }
+
 details summary { cursor: pointer; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
 .note { font-size: 11px; color: var(--muted); }
 footer { font-size: 11px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 8px; }
