@@ -6,7 +6,8 @@ import { PolygonLayer, SolidPolygonLayer, ScatterplotLayer, ArcLayer } from '@de
 import { TOWNSHIPS } from './townships.js';
 import { fetchOverpass } from './osm.js';
 import { CATEGORY_LABEL } from './heights.js';
-import { DEFAULT_ASSUMPTIONS, GRID_FLAG, buildSites, scoreSites, microGridLinks, summarise, toCSV } from './solar.js';
+import { DEFAULT_ASSUMPTIONS, GRID_FLAG, buildSites, scoreSites, microGridLinks, summarise, toCSV, toGeoJSON, toKML } from './solar.js';
+import { siteBriefHTML } from './brief.js';
 import { planCream } from './cream.js';
 import { planStorage } from './storage.js';
 import { supabase, loadAssumptionOverrides, saveShortlist } from './supabase.js';
@@ -365,8 +366,22 @@ function renderDetail() {
       <a class="small" href="/splat.html?site=${encodeURIComponent(s.name || s.id)}" target="_blank"><button class="small">Micro-verify in 3D (splat)</button></a>
       <a href="https://www.openstreetmap.org/${s.id}" target="_blank"><button class="small">View on OSM</button></a>
       <a href="https://www.google.com/maps/@${lat},${lon},120m/data=!3m1!1e3" target="_blank"><button class="small">Satellite</button></a>
+      <button class="small" id="briefBtn">Site brief (PDF)</button>
     </div>`;
   el.querySelector('.close').onclick = () => { state.selected = null; renderDetail(); renderRanking(); render(); };
+  el.querySelector('#briefBtn').onclick = () => openBrief(s, b);
+}
+
+function openBrief(s, battery) {
+  const w = window.open('', '_blank');
+  if (!w) return setStatus('Pop-up blocked: allow pop-ups to open the site brief.');
+  w.document.write(siteBriefHTML(s, {
+    township: TOWNSHIPS[state.township].name,
+    assumptions: state.assumptions,
+    battery,
+    yieldSource: state.yieldData?.source
+  }));
+  w.document.close();
 }
 
 function renderAssumptions() {
@@ -521,12 +536,17 @@ function bindControls() {
   $('satellite').onchange = (e) => { state.satellite = e.target.checked; map.setStyle(state.satellite ? SATELLITE_STYLE : DARK_STYLE); };
   $('colorBy').onchange = (e) => { state.colorBy = e.target.value; renderLegend(); render(); };
 
-  $('csv').onclick = () => {
-    const blob = new Blob([toCSV(state.ranked)], { type: 'text/csv' });
-    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `solar-shortlist-${state.township}.csv` });
+  const download = (ext, type, text) => {
+    const blob = new Blob([text], { type });
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `solar-shortlist-${state.township}.${ext}` });
     a.click();
     URL.revokeObjectURL(a.href);
   };
+  const SHORTLIST = 100;
+  $('csv').onclick = () => download('csv', 'text/csv', toCSV(state.ranked));
+  $('geojson').onclick = () => download('geojson', 'application/geo+json', toGeoJSON(state.ranked.slice(0, SHORTLIST), state.assumptions));
+  $('kml').onclick = () => download('kml', 'application/vnd.google-earth.kml+xml',
+    toKML(state.ranked.slice(0, SHORTLIST), state.assumptions, `${TOWNSHIPS[state.township].name}: top ${SHORTLIST} solar sites`));
 
   $('refresh').onclick = () => loadTownship(state.township, true).catch((err) => setStatus(`Live fetch failed: ${err.message}`));
 

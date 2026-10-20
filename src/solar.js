@@ -8,6 +8,7 @@ import { classify, estimateHeight, CATEGORY_LABEL } from './heights.js';
 export const DEFAULT_ASSUMPTIONS = {
   specificYield: 1350, // kWh/kWp/yr fallback, used only if the pvlib yield file is missing
   panelDensity: 0.18, // kWp per m2 of usable roof (incl. spacing)
+  panelWatt: 550, // W per module, for panel counts in exports and site briefs
   emissionFactor: 0.758, // kg CO2 per kWh, Peninsular Malaysia grid
   tariffResidential: 0.45, // RM/kWh avoided (effective)
   tariffCommercial: 0.5,
@@ -227,6 +228,68 @@ export function summarise(sites) {
     savings: sum('savings'),
     carparkKwp: sum('kwp', carparks)
   };
+}
+
+// Flat attribute record per site, shared by the GeoJSON, KML and registry exports.
+export function siteProperties(s, a, rank = null) {
+  const r = (v, d = 0) => (Number.isFinite(v) ? +v.toFixed(d) : null);
+  return {
+    ...(rank != null ? { rank } : {}),
+    osm_id: s.id,
+    name: s.name,
+    category: s.categoryLabel,
+    footprint_m2: r(s.area),
+    height_m: r(s.height, 1),
+    height_source: s.heightSource,
+    usable_roof_m2: r(s.usable),
+    unshaded_fraction: r(s.shading ?? 1, 2),
+    system_kwp: r(s.kwp, 1),
+    panels: Math.floor((s.kwp * 1000) / a.panelWatt),
+    atap_capped: s.atapCapped,
+    yield_p50_kwh_per_kwp: r(s.specificYield),
+    yield_p90_kwh_per_kwp: r(s.yieldP90),
+    annual_kwh_p50: r(s.kwh),
+    annual_kwh_p90: r(s.kwhP90),
+    lifetime_kwh_25yr: r(s.lifetimeKwh),
+    self_consumption: r(s.selfRatio, 2),
+    capex_rm: r(s.capex),
+    annual_savings_rm: r(s.savings),
+    payback_years: r(s.payback, 1),
+    co2_tonnes_per_year: r(s.co2, 1),
+    substation_distance_m: r(s.gridDistM),
+    score: r(s.score),
+    flags: s.flags.join('; ')
+  };
+}
+
+export function toGeoJSON(sites, a) {
+  return JSON.stringify({
+    type: 'FeatureCollection',
+    features: sites.map((s, i) => ({
+      type: 'Feature',
+      geometry: { type: 'Polygon', coordinates: [s.polygon] },
+      properties: siteProperties(s, a, i + 1)
+    }))
+  });
+}
+
+// KML with extruded footprints, so the shortlist opens in 3D in Google Earth.
+export function toKML(sites, a, title = 'Solar shortlist') {
+  const x = (v) => String(v ?? '').replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' })[c]);
+  const marks = sites.map((s, i) => {
+    const p = siteProperties(s, a, i + 1);
+    const coords = s.polygon.map(([lon, lat]) => `${lon},${lat},${s.height.toFixed(1)}`).join(' ');
+    const data = Object.entries(p).map(([k, v]) => `<Data name="${x(k)}"><value>${x(v)}</value></Data>`).join('');
+    return `<Placemark><name>${x(`${i + 1}. ${s.name || s.categoryLabel}`)}</name><styleUrl>#site</styleUrl>
+<description>${x(`${p.system_kwp} kWp, ${p.annual_kwh_p50} kWh/yr, payback ${p.payback_years} yr, score ${p.score}`)}</description>
+<ExtendedData>${data}</ExtendedData>
+<Polygon><extrude>1</extrude><altitudeMode>relativeToGround</altitudeMode><outerBoundaryIs><LinearRing><coordinates>${coords}</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark>`;
+  });
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>${x(title)}</name>
+<Style id="site"><LineStyle><color>ff4ac9ff</color><width>1.5</width></LineStyle><PolyStyle><color>a04ac9ff</color></PolyStyle></Style>
+${marks.join('\n')}
+</Document></kml>`;
 }
 
 export function toCSV(sites) {
