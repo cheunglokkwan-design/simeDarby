@@ -67,9 +67,18 @@ export function planCream(sites, a) {
     c.co2 = (c.kwh * a.emissionFactor) / 1000;
   });
 
+  // Affordable-housing blocks: lease income at the same rate per kWp as landed homes.
+  const homeKwp = homes.length ? homes.reduce((t, h) => t + h.kwp, 0) / homes.length : 10;
+  const leasePerKwp = a.leasePerRoof / homeKwp;
+  const affordable = sites
+    .filter((s) => s.affordable && !s.flags.includes('Too small'))
+    .map((s) => ({ site: s, kwp: s.kwp, kwh: s.kwh, leaseIncome: s.kwp * leasePerKwp }))
+    .sort((x, y) => y.leaseIncome - x.leaseIncome);
+
   const sum = (k) => clusters.reduce((t, c) => t + c[k], 0);
   return {
     clusters,
+    affordable,
     totals: {
       clusters: clusters.length,
       homes: clusters.reduce((t, c) => t + c.homes.length, 0),

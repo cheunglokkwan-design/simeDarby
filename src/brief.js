@@ -61,6 +61,7 @@ export function siteBriefHTML(s, { township, assumptions: a, battery, yieldSourc
 <button onclick="print()">Save as PDF / print</button>
 <h1>${esc(s.name || s.categoryLabel)}</h1>
 <p class="sub">${esc(township)} · ${lat.toFixed(5)}, ${lon.toFixed(5)} · <a href="https://www.openstreetmap.org/${esc(s.id)}">${esc(s.id)}</a> · ${new Date().toISOString().slice(0, 10)}</p>
+${s.affordable ? '<div><span class="flag" style="background:#e9f9ef;color:#1d7a42">Affordable housing: CREAM lease-income candidate</span></div>' : ''}
 <div>${s.flags.length ? s.flags.map((f) => `<span class="flag">${esc(f)}${f === GRID_FLAG ? ' (not scored: OSM substation coverage is incomplete)' : ''}</span>`).join('') : '<span class="flag" style="background:#e9f9ef;color:#1d7a42">Passes engineering checks</span>'}</div>
 <div class="grid"><div><h2>Pre-feasibility summary</h2><table>${rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('')}</table></div>
 <div><h2>Footprint</h2>${footprintSVG(s)}</div></div>

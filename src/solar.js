@@ -1,6 +1,7 @@
 // Turn OSM features into candidate solar sites and score them.
 import { makeProjector, polygonArea, polygonCentroid, bboxOf, distanceM } from './geo.js';
 import { classify, estimateHeight, CATEGORY_LABEL } from './heights.js';
+import { isAffordable } from './affordable.js';
 
 // Every number here is a demo assumption, editable in the UI and overridable
 // from the Supabase `assumptions` table. Verify against TNB / SEDA / Suruhanjaya
@@ -124,6 +125,7 @@ export function buildSites(raw) {
     }
     s.gridDistM = best ? bestD : null;
     s.nearestSubstation = best ? best.name || best.id : null;
+    s.affordable = isAffordable(s);
   }
   return { sites, origin: [lon0, lat0] };
 }
@@ -257,6 +259,7 @@ export function siteProperties(s, a, rank = null) {
     payback_years: r(s.payback, 1),
     co2_tonnes_per_year: r(s.co2, 1),
     substation_distance_m: r(s.gridDistM),
+    affordable_housing: !!s.affordable,
     score: r(s.score),
     flags: s.flags.join('; ')
   };

@@ -360,6 +360,7 @@ function renderDetail() {
   el.innerHTML = `<button class="close" aria-label="Close">×</button>
     <h3>${esc(s.name || s.categoryLabel)}</h3>
     <div class="sub">${s.id} · ${lat.toFixed(5)}, ${lon.toFixed(5)}</div>
+    ${s.affordable ? '<div><span class="flag ok">Affordable housing: CREAM lease-income candidate</span></div>' : ''}
     <div>${s.flags.length ? s.flags.map((f) => `<span class="flag${f === GRID_FLAG ? ' info' : ''}" ${f === GRID_FLAG ? 'title="Not scored: OSM substation coverage is incomplete"' : ''}>${f}</span>`).join('') : '<span class="flag ok">Passes engineering checks</span>'}</div>
     <table>${rows.map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join('')}</table>
     <div class="actions">
@@ -410,9 +411,13 @@ $('assumptions').addEventListener('change', (e) => {
 });
 
 function renderCream() {
-  const { clusters, totals: t } = state.cream;
-  if (!clusters.length) { $('cream').innerHTML = '<p class="note">No home clusters large enough in this township.</p>'; return; }
-  $('cream').innerHTML = `
+  const { clusters, affordable, totals: t } = state.cream;
+  const aff = affordable.length
+    ? `<p class="note"><b>Affordable housing:</b> ${affordable.length} block(s) as lease-income candidates ·
+        RM ${fmt(affordable.reduce((s, x) => s + x.leaseIncome, 0), 0)}/yr: ${affordable.slice(0, 3).map((x) => esc(x.site.name || x.site.id)).join(', ')}</p>`
+    : '<p class="note"><b>Affordable housing:</b> no affordable-scheme blocks mapped in OSM here. Add known blocks to <code>src/affordable.js</code>.</p>';
+  if (!clusters.length) { $('cream').innerHTML = '<p class="note">No home clusters large enough in this township.</p>' + aff; return; }
+  $('cream').innerHTML = aff + `
     <p class="note">${t.clusters} clusters · ${fmt(t.homes, 0)} landed homes · ${fmt(t.kwp / 1000, 1)} MWp ·
       ${fmt((100 * t.matchedKwh) / t.kwh, 0)}% sold to buyers within ${state.assumptions.creamRadiusKm} km ·
       RM ${fmt(t.leaseIncome / 1e6, 2)}M/yr homeowner lease income</p>
