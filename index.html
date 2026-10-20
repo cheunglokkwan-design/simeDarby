@@ -9,85 +9,69 @@
   <body>
     <div id="map"></div>
 
-    <aside id="panel">
-      <header>
-        <h1>Solar Opportunity Mapper</h1>
-        <p class="sub">Sime Darby Property · Township of Tomorrow</p>
-      </header>
-
-      <section>
-        <label class="row">Township
-          <select id="township"></select>
-        </label>
-        <div class="status" id="status">Loading…</div>
-      </section>
-
-      <section class="kpis" id="kpis"></section>
-
-      <section>
-        <h2>Sun &amp; shading</h2>
-        <label class="row">Month <span id="monthLabel"></span></label>
-        <input type="range" id="month" min="0" max="11" step="1" />
-        <label class="row">Time (MYT) <span id="hourLabel"></span></label>
-        <input type="range" id="hour" min="7" max="19" step="0.25" />
-        <div class="toggles">
-          <label><input type="checkbox" id="shadows" checked /> Live shadows</label>
-          <label><input type="checkbox" id="animate" /> Animate day</label>
+    <header id="topbar">
+      <div class="brand">
+        <span class="logo" aria-hidden="true">☀</span>
+        <div><b>Solar Opportunity Mapper</b><small>Sime Darby Property · Township of Tomorrow</small></div>
+      </div>
+      <select id="township" aria-label="Township"></select>
+      <nav id="tabs" role="tablist" aria-label="Features">
+        <button role="tab" data-tab="find"><span>1</span>Find roofs</button>
+        <button role="tab" data-tab="share"><span>2</span>Share with homes</button>
+        <button role="tab" data-tab="store"><span>3</span>Store energy</button>
+      </nav>
+      <div class="tools">
+        <button id="tourBtn" class="btn primary">▶ Tour</button>
+        <div class="menu">
+          <button id="exportBtn" class="btn" aria-haspopup="true" aria-expanded="false" aria-label="Export"><span class="hide-sm">Export </span>⤓</button>
+          <div id="exportMenu" class="dropdown" hidden>
+            <button data-export="csv">Ranked list (CSV)</button>
+            <button data-export="geojson">Map outlines (GeoJSON, for QGIS)</button>
+            <button data-export="kml">3D outlines (KML, for Google Earth)</button>
+            <button data-export="supabase" hidden>Save shortlist to Supabase</button>
+          </div>
         </div>
-      </section>
+        <button id="settingsBtn" class="btn icon" aria-label="Settings and assumptions">⚙</button>
+      </div>
+    </header>
 
-      <section>
-        <h2>Layers</h2>
-        <label class="row">Colour by
-          <select id="colorBy">
-            <option value="score">Solar opportunity score</option>
-            <option value="kwh">Annual generation</option>
-            <option value="shading">Unshaded fraction (raycast)</option>
-            <option value="category">Building type (demand proxy)</option>
-          </select>
-        </label>
-        <div class="legend" id="legend"></div>
-        <div class="toggles">
-          <label><input type="checkbox" id="carparks" checked /> Car park canopies</label>
-          <label><input type="checkbox" id="microgrid" checked /> Community micro-grid links</label>
-          <label><input type="checkbox" id="substations" checked /> Substations (OSM, incomplete)</label>
-          <label><input type="checkbox" id="creamLayer" checked /> CREAM home clusters &amp; buyers</label>
-          <label><input type="checkbox" id="storageLayer" checked /> Battery storage candidates</label>
-          <label><input type="checkbox" id="satellite" /> Satellite basemap</label>
-        </div>
-      </section>
+    <section id="impact" aria-label="Township impact"></section>
 
-      <section>
-        <h2>Top sites <button id="csv" class="small">CSV</button> <button id="geojson" class="small">GeoJSON</button> <button id="kml" class="small">KML</button> <button id="save" class="small" hidden>Save to Supabase</button></h2>
-        <ol id="ranking"></ol>
-      </section>
+    <aside id="panel" aria-live="polite"></aside>
+    <aside id="card" hidden></aside>
 
-      <section>
-        <h2>CREAM planner</h2>
-        <div id="cream"></div>
-      </section>
+    <div id="legend"></div>
+    <div id="basemap" class="seg" role="group" aria-label="Basemap">
+      <button data-b="map">Map</button><button data-b="sat">Satellite</button>
+    </div>
+    <div id="sun">
+      <button id="play" class="btn icon" aria-label="Play the day">▶</button>
+      <select id="month" aria-label="Month"></select>
+      <input type="range" id="hour" min="7" max="19" step="0.25" aria-label="Time of day" />
+      <span id="hourLabel"></span>
+      <label class="chk"><input type="checkbox" id="shadows" checked /> Shadows</label>
+    </div>
+    <div id="loading" hidden></div>
 
-      <section>
-        <h2>Battery storage (PySAM)</h2>
-        <div id="storage"></div>
-      </section>
-
-      <section>
-        <details>
-          <summary>Assumptions (editable)</summary>
-          <div id="assumptions"></div>
-          <p class="note">Demo values: check them against current TNB tariffs, SEDA ATAP rules and Suruhanjaya Tenaga grid factors before the pitch.</p>
-        </details>
-        <button id="refresh" class="small">Re-fetch live OSM data</button>
-      </section>
-
-      <footer>
-        Data © <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors.
-        <span id="db"></span>
-      </footer>
+    <aside id="settings" hidden>
+      <header><b>Settings &amp; assumptions</b><button class="x" id="settingsClose" aria-label="Close">×</button></header>
+      <p class="note">All numbers are editable demo assumptions. Check tariffs, SMP and per-kW charges against TNB, SEDA and Suruhanjaya Tenaga before quoting.</p>
+      <div id="assumptions"></div>
+      <button id="reset" class="btn">Reset to defaults</button>
+      <h3>Data</h3>
+      <p class="note" id="status"></p>
+      <p class="note">Buildings, car parks and substations © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors. Basemap © CARTO; imagery © Esri.<span id="db"></span></p>
+      <button id="refresh" class="btn">Re-fetch live OSM data</button>
     </aside>
 
-    <div id="detail" hidden></div>
+    <div id="modal" hidden>
+      <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+        <header><b id="modalTitle"></b><button class="x" id="modalClose" aria-label="Close">×</button></header>
+        <iframe id="modalFrame" title="Detail view"></iframe>
+      </div>
+    </div>
+
+    <div id="tour" hidden></div>
 
     <script type="module" src="/src/main.js"></script>
   </body>

@@ -5,6 +5,17 @@ Sime Darby Property *Township of Tomorrow* hackathon (PLANET track: choosing the
 A 3D web demo, built from open data, that ranks every rooftop and car park in a
 township by solar opportunity.
 
+## Three features, one map
+
+| Tab | Question it answers |
+|---|---|
+| **1. Find roofs** | Which roofs and car parks should get solar, and what do they save? |
+| **2. Share with homes** | How can homeowners benefit through community solar (CREAM)? |
+| **3. Store energy** | Where do batteries pay off, and is the grid close by? |
+
+The impact bar (MWp, GWh/yr, CO₂/yr, bill savings) stays visible across all three. Click any site for a card
+with four headline numbers and expandable detail; **▶ Tour** walks through the story for the demo video.
+
 ## What it does
 
 | Feature | How it works in the demo |

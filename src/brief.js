@@ -27,7 +27,7 @@ export function siteBriefHTML(s, { township, assumptions: a, battery, yieldSourc
     ['Height', `${n(s.height, 1)} m (${esc(s.heightSource)})`],
     ['Panels', `${n(p.panels)} × ${a.panelWatt} W`],
     ['System size', `${n(s.kwp, 1)} kWp${s.atapCapped ? ' (capped by Solar ATAP: 1 MW or peak demand)' : ''}`],
-    ['Unshaded fraction (raycast)', `${n((s.shading ?? 1) * 100)} %`],
+    ['Sun exposure (3D shading)', `${n((s.shading ?? 1) * 100)} %`],
     ['Specific yield', `${n(s.specificYield)} kWh/kWp P50 · ${n(s.yieldP90)} P90`],
     ['Generation, year 1', `${n(s.kwh / 1000, 1)} MWh P50 · ${n(s.kwhP90 / 1000, 1)} MWh P90`],
     ['Generation, 25 years', `${n(s.lifetimeKwh / 1e6, 2)} GWh (0.5 %/yr degradation)`],
@@ -35,7 +35,7 @@ export function siteBriefHTML(s, { township, assumptions: a, battery, yieldSourc
     ['CAPEX', `RM ${n(s.capex)}`],
     ['Annual savings', `RM ${n(s.savings)} (exports at ATAP SMP ${a.exportSMP} RM/kWh)`],
     ['Simple payback', `${n(s.payback, 1)} years`],
-    ['CO₂ avoided', `${n(s.co2, 1)} t/yr · ${n((s.lifetimeKwh * a.emissionFactor) / 1e6, 0)} t over 25 years`],
+    ['CO₂ avoided', `${n(s.co2, 1)} t/yr · ${n((s.lifetimeKwh * a.emissionFactor) / 1000, 0)} t over 25 years`],
     ['Nearest mapped substation', s.gridDistM == null ? 'none mapped' : `${n(s.gridDistM)} m`],
     ['Opportunity score', `${n(s.score)} / 100`]
   ];
