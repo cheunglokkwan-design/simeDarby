@@ -24,7 +24,11 @@ township by solar opportunity.
 | **Carbon offset tracker** | kWh × grid emission factor gives tonnes CO₂ per site and per township |
 | **Engineering flags** | Too small, heavy shading, heritage/religious zoning review, strata approval |
 | **Community micro-grids** | Arcs from high-surplus commercial roofs to nearby schools and clinics |
-| **Exportable shortlist** | Ranked CSV, and optionally saved to the Supabase `shortlist_sites` table |
+| **Exportable shortlist** | Ranked CSV, GeoJSON and KML (extruded for Google Earth; loads into QGIS, HelioScope or PVsyst), optionally saved to Supabase |
+| **Site brief** | One-page pre-feasibility brief per site (panels, P50/P90 output, savings, CO₂, battery option, footprint plan), saved as PDF from the browser |
+| **Affordable housing** | Affordable-scheme blocks flagged as CREAM lease-income candidates (`src/affordable.js`) |
+| **Open roof registry** | Every roof per township as open GeoJSON under ODbL (`registry/`, `npm run registry`) |
+| **Google Solar API check** | Compares our roof capacity with Google's for 30 sampled homes (`npm run google-check`, needs your own API key) |
 | **3D micro-verification** | `splat.html`, a Gaussian splat viewer (open-source sample now, drone splat later: see `docs/splat-pipeline.md`) |
 
 Townships included: **Ara Damansara** (~4.6k buildings) and **Bandar Bukit Raja** (~7.3k buildings).
@@ -54,6 +58,14 @@ python scripts/pysam_storage.py    # runs PySAM battery dispatch on the typical-
 ```
 
 See `docs/competitors.md` for the deck's competitor table.
+
+### Registry and Google check
+
+```bash
+npm run registry                    # rebuild registry/<township>.geojson
+npm run google-check -- --dry-run   # list the 30 sampled homes without calling Google
+npm run google-check                # needs GOOGLE_SOLAR_API_KEY in .env.local; writes docs/google-solar-check.md
+```
 
 ## Supabase (optional)
 
