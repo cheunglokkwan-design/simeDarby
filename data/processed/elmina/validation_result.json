@@ -1,0 +1,8 @@
+{
+  "township": "City of Elmina",
+  "labelled": 40,
+  "precision_at_10": 1,
+  "precision_at_20": 1,
+  "random_sample_good_rate": 0.05,
+  "lift": 20
+}
