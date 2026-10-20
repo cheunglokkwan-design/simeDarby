@@ -8,7 +8,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "fetch-osm": "node scripts/fetch-osm.mjs"
+    "fetch-osm": "node scripts/fetch-osm.mjs",
+    "registry": "node scripts/build-registry.mjs"
   },
   "repository": {
     "type": "git",
