@@ -33,6 +33,7 @@ const state = {
   buyerSet: new Set(),
   yieldData: null,
   storageData: null,
+  scans: {}, // drone scans by OSM id, from public/splats/scans.json
   assumptions: { ...DEFAULT_ASSUMPTIONS },
   overrides: {},
   month: 2,
@@ -493,11 +494,12 @@ function siteCard(s) {
   const a = state.assumptions;
   const panels = Math.floor((s.kwp * 1000) / a.panelWatt);
   const openBattery = state.tab === 'store' && b;
+  const scan = state.scans[s.id];
   return `
     <button class="x" data-act="close" aria-label="Close">×</button>
     <h3>${esc(label(s))}</h3>
     <div class="sub">${esc(s.categoryLabel)} · ${esc(TOWNSHIPS[state.township].name)}</div>
-    ${fitBadge(s)}${s.affordable ? '<span class="badge info">Affordable housing</span>' : ''}${s.gridDistM != null && s.gridDistM > a.gridMaxM ? '<span class="badge weak" title="OSM substation coverage is incomplete">Substation not mapped nearby</span>' : ''}
+    ${fitBadge(s)}${scan ? '<span class="badge info">Drone-verified</span>' : ''}${s.affordable ? '<span class="badge info">Affordable housing</span>' : ''}${s.gridDistM != null && s.gridDistM > a.gridMaxM ? '<span class="badge weak" title="OSM substation coverage is incomplete">Substation not mapped nearby</span>' : ''}
     <div class="big4">
       <div><b>${power(s.kwp)}</b><span>system size · ${fmt(panels)} panels</span></div>
       <div><b>${rm(s.savings)}</b><span>saved per year</span></div>
@@ -535,14 +537,54 @@ function siteCard(s) {
       ['Flood', esc(b.checks.flood)],
       ['Space', esc(b.checks.space)]
     ])}</details>` : ''}
+    ${droneSection(s, scan)}
     <details><summary>Data sources</summary><div class="body">
       <p>Outline and type: <a href="https://www.openstreetmap.org/${esc(s.id)}" target="_blank" rel="noopener">OpenStreetMap ${esc(s.id)}</a>. Yield: ${esc(state.yieldData?.source || 'fallback assumption')}. Pre-feasibility only, not a bankable design.</p>
     </div></details>
     <div class="actions">
       <button class="btn primary" data-act="brief">Site brief (PDF)</button>
       <button class="btn" data-act="sat">Satellite view</button>
-      <button class="btn" data-act="splat">3D inspection</button>
+      ${scan ? '<button class="btn" data-act="scan">View drone scan (3D)</button>' : ''}
     </div>`;
+}
+
+// Drone check: what a flight would confirm, or what a completed scan found.
+const FINDING_LABELS = {
+  roofType: 'Roof type', obstructions: 'Rooftop equipment', existingPanels: 'Existing solar panels',
+  condition: 'Roof condition', heightCheck: 'Height vs our estimate', areaCheck: 'Usable area vs our estimate', notes: 'Notes'
+};
+function droneSection(s, scan) {
+  if (scan) {
+    const f = scan.findings || {};
+    const rows = Object.entries(FINDING_LABELS).filter(([k]) => f[k] != null && f[k] !== '').map(([k, l]) => [l, esc(String(f[k]))]);
+    return `<details open><summary>Drone check</summary>${kv([
+      ['Scanned', esc([scan.captured, scan.source].filter(Boolean).join(' · ') || 'yes')],
+      ...(rows.length ? rows : [['Findings', 'not recorded yet: use the viewer\'s Findings tab']])
+    ])}</details>`;
+  }
+  if (!BUSINESS.has(s.category)) return '';
+  const rank = state.ranked.indexOf(s) + 1;
+  const near = TOWNSHIPS[state.township].nearAirport;
+  return `<details><summary>Drone check</summary><div class="body">
+    <p>${rank > 0 && rank <= 20 ? `<b>On the shortlist (#${rank}).</b> ` : ''}A 10-minute drone flight would confirm what this estimate assumes: roof pitch and height, water tanks and AC units, existing panels, and roof condition. The same photos give a measured 3D model (photogrammetry) and a 3D scan to show the owner.</p>
+    <p><b>Before flying:</b> get the building owner's permission${near ? `, and a CAAM permit: ${esc(TOWNSHIPS[state.township].name)} is next to ${esc(near)}` : ' and check CAAM rules for the area'}.</p>
+  </div></details>`;
+}
+
+function scanPayload(s) {
+  const [cx, cy] = s.centroid;
+  return {
+    id: s.id, name: label(s), category: s.categoryLabel,
+    footprint: s.xy.map(([x, y]) => [x - cx, y - cy]),
+    height: s.height, heightSource: s.heightSource, area: s.area, usable: s.usable,
+    kwp: s.kwp, panels: Math.floor((s.kwp * 1000) / state.assumptions.panelWatt),
+    flags: s.flags, scan: state.scans[s.id]
+  };
+}
+function openScan(s) {
+  const f = $('modalFrame');
+  openModal(`Drone scan: ${label(s)}`, { src: `/splat.html?site=${encodeURIComponent(s.id)}` });
+  f.onload = () => f.contentWindow?.postMessage({ type: 'site', site: scanPayload(s) }, location.origin);
 }
 
 function zoneCard(c) {
@@ -578,7 +620,7 @@ function bindCard() {
       if (act === 'brief') return openBrief(state.selected);
       if (act === 'sat') { setBasemap(true); return map.flyTo({ center: state.selected.position, zoom: 17.6, pitch: 0, bearing: 0, duration: 1400 }); }
       if (act === 'sat-zone') { setBasemap(true); return map.flyTo({ center: state.selectedZone.position, zoom: 16.2, pitch: 0, bearing: 0, duration: 1400 }); }
-      if (act === 'splat') return openModal(`3D inspection: ${label(state.selected)}`, { src: `/splat.html?site=${encodeURIComponent(label(state.selected))}` });
+      if (act === 'scan') return openScan(state.selected);
     };
   });
 }
@@ -592,6 +634,7 @@ function openModal(title, { src, html }) {
 }
 function closeModal() {
   $('modal').hidden = true;
+  $('modalFrame').onload = null;
   $('modalFrame').src = 'about:blank';
 }
 $('modalClose').onclick = closeModal;
@@ -718,6 +761,7 @@ function syncSun() {
   const h = Math.floor(state.hour), m = Math.round((state.hour - h) * 60);
   $('hourLabel').textContent = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   $('hour').value = state.hour;
+  $('hour').style.setProperty('--p', `${((state.hour - 7) / 12) * 100}%`); // filled part of the track
 }
 $('month').innerHTML = MONTHS.map((m, i) => `<option value="${i}">${m}</option>`).join('');
 $('month').value = state.month;
@@ -858,6 +902,8 @@ async function init() {
   syncSun();
   setTab('find');
   renderSettings();
+  state.scans = await fetch(`${import.meta.env.BASE_URL}splats/scans.json`).then((r) => (r.ok ? r.json() : {})).then((j) => j.scans || {}).catch(() => ({}));
+  $('sampleScan').onclick = () => openModal('3D viewer: sample scene', { src: '/splat.html?sample=1' });
   if (supabase) {
     document.querySelector('[data-export="supabase"]').hidden = false;
     try {

@@ -222,3 +222,47 @@ body.no-card #basemap { right: 12px; }
   .brand div { display: none; }
   #township { flex: 1; min-width: 0; }
 }
+
+/* ---------- form controls & scrollbars ---------- */
+select {
+  appearance: none; -webkit-appearance: none; cursor: pointer; color: var(--text);
+  background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%235b6475' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 10px center;
+  border: 1px solid var(--line); border-radius: 8px; padding: 6px 30px 6px 10px !important;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+select:hover, #settings input:hover { border-color: #c9cfd9; }
+#township { font-weight: 600; font-size: 13px; padding-top: 7px !important; padding-bottom: 7px !important; }
+#sun select { font-size: 12px; padding: 4px 26px 4px 8px !important; background-position: right 8px center; }
+option { color: var(--text); background: var(--surface); }
+select:focus-visible, input:focus-visible, button:focus-visible, textarea:focus-visible {
+  outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px rgba(232, 164, 0, 0.25);
+}
+#settings input { transition: border-color 0.15s, box-shadow 0.15s; -moz-appearance: textfield; }
+#settings input::-webkit-inner-spin-button, #settings input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+input[type='checkbox'] { accent-color: var(--brand); width: 15px; height: 15px; cursor: pointer; }
+
+input[type='range'] {
+  -webkit-appearance: none; appearance: none; height: 4px; border-radius: 4px; cursor: pointer;
+  background: linear-gradient(90deg, var(--brand) var(--p, 50%), var(--line) var(--p, 50%));
+}
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #fff;
+  border: 2px solid var(--brand); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+input[type='range']::-moz-range-thumb {
+  width: 14px; height: 14px; border-radius: 50%; background: #fff; border: 2px solid var(--brand); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+#panel, #card, #settings, .dropdown { scrollbar-width: thin; scrollbar-color: #cdd3dd transparent; }
+#panel::-webkit-scrollbar, #card::-webkit-scrollbar, #settings::-webkit-scrollbar, .dropdown::-webkit-scrollbar { width: 10px; }
+#panel::-webkit-scrollbar-track, #card::-webkit-scrollbar-track, #settings::-webkit-scrollbar-track { background: transparent; margin: 12px 0; }
+#panel::-webkit-scrollbar-thumb, #card::-webkit-scrollbar-thumb, #settings::-webkit-scrollbar-thumb, .dropdown::-webkit-scrollbar-thumb {
+  background: #cdd3dd; border-radius: 10px; border: 3px solid var(--surface);
+}
+#panel::-webkit-scrollbar-thumb:hover, #card::-webkit-scrollbar-thumb:hover, #settings::-webkit-scrollbar-thumb:hover { background: #aab2bf; }
+/* Id rules above reset `background`; re-apply the chevron with matching specificity. */
+#township, #sun select, #month {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%235b6475' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 10px center; background-color: var(--surface);
+}
+#sun select { background-position: right 8px center; }

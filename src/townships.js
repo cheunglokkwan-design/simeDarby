@@ -4,7 +4,8 @@ export const TOWNSHIPS = {
   'ara-damansara': {
     name: 'Ara Damansara',
     bbox: [3.095, 101.565, 3.125, 101.6],
-    view: { longitude: 101.5825, latitude: 3.11, zoom: 15.2, pitch: 55, bearing: -20 }
+    view: { longitude: 101.5825, latitude: 3.11, zoom: 15.2, pitch: 55, bearing: -20 },
+    nearAirport: 'Subang Airport' // drone flights likely need CAAM approval
   },
   'bandar-bukit-raja': {
     name: 'Bandar Bukit Raja',

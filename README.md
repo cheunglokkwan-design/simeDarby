@@ -40,7 +40,7 @@ with four headline numbers and expandable detail; **▶ Tour** walks through the
 | **Affordable housing** | Affordable-scheme blocks flagged as CREAM lease-income candidates (`src/affordable.js`) |
 | **Open roof registry** | Every roof per township as open GeoJSON under ODbL (`registry/`, `npm run registry`) |
 | **Google Solar API check** | Compares our roof capacity with Google's for 30 sampled homes (`npm run google-check`, needs your own API key) |
-| **3D micro-verification** | `splat.html`, a Gaussian splat viewer (open-source sample now, drone splat later: see `docs/splat-pipeline.md`) |
+| **Drone scans** | Per-roof Gaussian splats registered in `public/splats/scans.json`, viewed in-app with our predicted outline and panel area overlaid, an Align tool and a findings checklist (see `docs/drone-scans.md`) |
 
 Townships included: **Ara Damansara** (~4.6k buildings) and **Bandar Bukit Raja** (~7.3k buildings).
 
