@@ -31,8 +31,18 @@ export const DEFAULT_ASSUMPTIONS = {
   batteryCapexPerKwh: 1800, // RM per kWh installed, LFP containerised (placeholder)
   capexSmall: 4000, // RM per kWp, systems < 50 kWp
   capexLarge: 2800, // RM per kWp, systems >= 50 kWp
-  minKwp: 3
+  minKwp: 3,
+  // Homes
+  homeKwhMonth: 500, // household use per landed home (placeholder: check against real TNB bills)
+  homeFootprintM2: 130, // typical terrace footprint, to count homes in row polygons
+  exportCreditCap: 1, // 1 = export credits can't exceed the import bill (conservative until ATAP rule is confirmed)
+  mortgageRate: 0.04, // for the "add solar to the mortgage" option
+  mortgageYears: 30,
+  paybackTarget: 7 // years: the "pays back fast" line in the headline funnel
 };
+
+// OSM often maps a whole terrace row as one polygon: count the homes in it.
+export const homesIn = (s, a) => (s.category !== 'residential' ? 0 : s.area <= 400 ? 1 : Math.max(1, Math.round(s.area / a.homeFootprintM2)));
 
 // Fraction of footprint usable for panels (setbacks, plant, pitch, orientation).
 const USABLE_FRACTION = {
@@ -116,7 +126,10 @@ export function buildSites(raw) {
   ];
 
   // Grid check: straight-line distance to the nearest OSM-mapped substation.
-  const subs = raw.substations || [];
+  // With only a handful mapped (Bandar Bukit Raja has 2), distances say more
+  // about missing OSM data than about the grid, so skip the check there.
+  const mapped = raw.substations || [];
+  const subs = mapped.length >= 5 ? mapped : [];
   for (const s of sites) {
     let best = null, bestD = Infinity;
     for (const sub of subs) {
@@ -155,19 +168,29 @@ export function scoreSites(sites, a, yieldData = null) {
   for (const s of sites) {
     const shading = s.shading ?? 1;
     const usable = s.area * USABLE_FRACTION[s.category];
-    const floorArea = s.area * Math.max(1, s.levels);
-    const demand = floorArea * DEMAND_INTENSITY[s.category];
-    const uncappedKwp = usable * a.panelDensity;
-    const kwp = Math.min(uncappedKwp, atapCapKw(s, demand, a));
-    const atapCapped = kwp < uncappedKwp;
+    const homes = homesIn(s, a);
+    // Homes: real household use, not floor area. Others: floor-area demand proxy.
+    const demand = homes ? homes * a.homeKwhMonth * 12 : s.area * Math.max(1, s.levels) * DEMAND_INTENSITY[s.category];
     const y = siteYield(s, yieldData, a);
+    const uncappedKwp = usable * a.panelDensity;
+    // Homes are sized to cover their own yearly use, within ATAP's 15 kW per home.
+    const homeSize = homes ? Math.min(a.homeCapKw * homes, demand / Math.max(1, y.p50 * shading)) : Infinity;
+    const kwp = Math.min(uncappedKwp, atapCapKw(s, demand, a) * (homes || 1), homeSize);
+    const atapCapped = !homes && kwp < uncappedKwp;
     const kwh = kwp * y.p50 * shading;
     const kwhP90 = kwp * y.p90 * shading;
+    // A CREAM lease uses the whole roof (within ATAP's per-home cap), not just the household's own use.
+    const roofKwp = homes ? Math.min(uncappedKwp, a.homeCapKw * homes) : kwp;
+    const roofKwh = roofKwp * y.p50 * shading;
     const lifetimeKwh = kwh * lifeYears * lifeFactor;
     const selfUse = Math.min(kwh, demand * DAYTIME_SHARE[s.category]);
     const exported = kwh - selfUse;
     const capex = kwp * (kwp >= 50 ? a.capexLarge : a.capexSmall);
-    const savings = selfUse * tariffFor(s.category, a) + exported * a.exportSMP;
+    const tariff = tariffFor(s.category, a);
+    let exportValue = exported * a.exportSMP;
+    // Conservative: export credits only offset the remaining bill (car parks feed their host building).
+    if (a.exportCreditCap && demand > 0) exportValue = Math.min(exportValue, Math.max(0, demand - selfUse) * tariff);
+    const savings = selfUse * tariff + exportValue;
     const payback = savings > 0 ? capex / savings : Infinity;
     const co2 = (kwh * a.emissionFactor) / 1000;
 
@@ -190,7 +213,7 @@ export function scoreSites(sites, a, yieldData = null) {
       (scored.includes('Too small') ? 0.3 : scored.length ? 0.8 : 1);
 
     Object.assign(s, {
-      usable, kwp, kwh, demand, selfUse, exported, capex, savings, payback, co2,
+      usable, homes, roofKwp, roofKwh, kwp, kwh, demand, selfUse, exported, capex, savings, payback, co2,
       atapCapped, kwhP90, lifetimeKwh, specificYield: y.p50, yieldP90: y.p90, yieldTilt: y.tilt,
       selfRatio: selfScore, flags, score
     });
@@ -216,6 +239,23 @@ export function microGridLinks(sites, community, maxDistM = 1500, perSite = 2) {
   }
   return links;
 }
+
+// The honest headline: all viable roofs -> those needing no special approval
+// -> those that pay back within the target. Impact figures use the last set.
+const NEEDS_APPROVAL = ['Zoning / heritage review', 'Strata approval needed'];
+export function funnel(sites, a) {
+  const all = sites.filter((s) => !s.flags.includes('Too small'));
+  const noApproval = all.filter((s) => !s.flags.some((f) => NEEDS_APPROVAL.includes(f)));
+  const fast = noApproval.filter((s) => s.payback <= a.paybackTarget);
+  const kwp = (list) => list.reduce((t, s) => t + s.kwp, 0);
+  return { all: kwp(all), noApproval: kwp(noApproval), fast: kwp(fast), fastSites: fast, counts: [all.length, noApproval.length, fast.length] };
+}
+
+// Monthly repayment on a loan (annuity formula).
+export const monthlyPayment = (principal, rate, years) => {
+  const r = rate / 12, n = years * 12;
+  return r ? (principal * r) / (1 - (1 + r) ** -n) : principal / n;
+};
 
 export function summarise(sites) {
   const ok = sites.filter((s) => !s.flags.includes('Too small'));

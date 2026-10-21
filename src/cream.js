@@ -23,14 +23,16 @@ export function planCream(sites, a) {
     cells.get(k).push(h);
   }
 
+  const count = (hs) => hs.reduce((t, h) => t + (h.homes || 1), 0); // terrace rows hold several homes
   const clusters = [...cells.values()]
-    .filter((hs) => hs.length >= a.creamMinHomes)
+    .filter((hs) => count(hs) >= a.creamMinHomes)
     .map((hs) => {
       const position = [
         hs.reduce((t, h) => t + h.position[0], 0) / hs.length,
         hs.reduce((t, h) => t + h.position[1], 0) / hs.length
       ];
-      return { homes: hs, position, kwp: hs.reduce((t, h) => t + h.kwp, 0), kwh: hs.reduce((t, h) => t + h.kwh, 0) };
+      // Leased roofs are sized to the roof, not to the household's own use.
+      return { homes: hs, homeCount: count(hs), position, kwp: hs.reduce((t, h) => t + h.roofKwp, 0), kwh: hs.reduce((t, h) => t + h.roofKwh, 0) };
     })
     .sort((x, y) => y.kwh - x.kwh);
 
@@ -60,7 +62,7 @@ export function planCream(sites, a) {
     c.unmatchedKwh = need;
     c.revenue = c.matchedKwh * price + c.unmatchedKwh * a.exportSMP;
     c.accessCost = c.matchedKwh * a.accessCharge;
-    c.leaseCost = c.homes.length * a.leasePerRoof;
+    c.leaseCost = c.homeCount * a.leasePerRoof;
     c.net = c.revenue - c.accessCost - c.leaseCost;
     c.capex = c.kwp * a.capexSmall;
     c.payback = c.net > 0 ? c.capex / c.net : Infinity;
@@ -68,7 +70,7 @@ export function planCream(sites, a) {
   });
 
   // Affordable-housing blocks: lease income at the same rate per kWp as landed homes.
-  const homeKwp = homes.length ? homes.reduce((t, h) => t + h.kwp, 0) / homes.length : 10;
+  const homeKwp = homes.length ? homes.reduce((t, h) => t + h.roofKwp, 0) / count(homes) : 10;
   const leasePerKwp = a.leasePerRoof / homeKwp;
   const affordable = sites
     .filter((s) => s.affordable && !s.flags.includes('Too small'))
@@ -81,7 +83,7 @@ export function planCream(sites, a) {
     affordable,
     totals: {
       clusters: clusters.length,
-      homes: clusters.reduce((t, c) => t + c.homes.length, 0),
+      homes: clusters.reduce((t, c) => t + c.homeCount, 0),
       kwp: sum('kwp'),
       kwh: sum('kwh'),
       matchedKwh: sum('matchedKwh'),

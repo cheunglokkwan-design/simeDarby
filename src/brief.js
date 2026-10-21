@@ -18,7 +18,7 @@ function footprintSVG(s, w = 300, h = 200, pad = 16) {
   </svg>`;
 }
 
-export function siteBriefHTML(s, { township, assumptions: a, battery, yieldSource }) {
+export function siteBriefHTML(s, { township, assumptions: a, battery, yieldSource, quotes = false }) {
   const p = siteProperties(s, a);
   const [lon, lat] = s.position;
   const rows = [
@@ -55,9 +55,16 @@ export function siteBriefHTML(s, { township, assumptions: a, battery, yieldSourc
   table { width: 100%; border-collapse: collapse; } td { padding: 4px 6px; border-bottom: 1px solid #e3e6ec; vertical-align: top; }
   td:first-child { color: #5b6475; width: 42%; } .flag { display: inline-block; background: #fff1e8; color: #b34a12; border-radius: 4px; padding: 1px 6px; margin: 0 4px 4px 0; }
   .note { color: #5b6475; font-size: 11px; } button { margin: 8px 0; padding: 6px 12px; }
-  @media print { button { display: none; } body { margin: 0; } }
+  .quote { background: #fff8e6; border: 1px solid #f2d48a; border-radius: 8px; padding: 10px 12px; margin: 8px 0 12px; }
+  .quote ol { margin: 6px 0 0; padding-left: 18px; }
+  @media print { button, .quote { display: none; } body { margin: 0; } }
   @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
 </style></head><body>
+${quotes ? `<div class="quote"><b>Requesting installer quotes</b><ol>
+  <li>Save this brief as a PDF with the button below.</li>
+  <li>Send it to two or three installers on SEDA Malaysia's register of PV service providers (<a href="https://www.seda.gov.my" target="_blank" rel="noopener">seda.gov.my</a>). Only use registered installers.</li>
+  <li>Ask each to confirm roof condition and structure, the TNB connection, and a price per kWp. Compare against the RM ${n(a.capexSmall)}/kWp assumed here.</li>
+</ol></div>` : ''}
 <button onclick="print()">Save as PDF / print</button>
 <h1>${esc(s.name || s.categoryLabel)}</h1>
 <p class="sub">${esc(township)} · ${lat.toFixed(5)}, ${lon.toFixed(5)} · <a href="https://www.openstreetmap.org/${esc(s.id)}">${esc(s.id)}</a> · ${new Date().toISOString().slice(0, 10)}</p>

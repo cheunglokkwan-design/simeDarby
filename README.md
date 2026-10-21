@@ -2,19 +2,31 @@
 
 Sime Darby Property *Township of Tomorrow* hackathon (PLANET track: choosing the right sites for solar).
 
-A 3D web demo, built from open data, that ranks every rooftop and car park in a
-township by solar opportunity.
+Solar Opportunity Mapper is a 3D web map that shows which rooftops and car parks in a township are
+worth putting solar on. It uses free, open data: building outlines and grid substations from
+OpenStreetMap, plus 19 years of hourly weather data. It covers every building in Ara Damansara and
+Bandar Bukit Raja, about 12,000 in total. It estimates each roof's height, checks how much the
+neighbouring buildings shade it across the year, and models its yearly output with pvlib, the
+open-source engine industry tools are built on. From that it works out each site's system size,
+cost, bill savings, payback time and CO₂ avoided, using Malaysia's Solar ATAP rules; battery savings
+are modelled with NREL's PySAM. Shortlisted roofs can be checked with a drone scan, which shows the
+model's predicted roof outline over a 3D capture of the real roof. Each site has a printable one-page
+brief, the ranked shortlist exports to CSV, GeoJSON or KML, and every roof's estimates are published
+as an open dataset. All figures are early estimates for screening sites, not survey-grade results,
+and the tariffs and costs are editable placeholders.
 
 ## Three features, one map
 
 | Tab | Question it answers |
 |---|---|
-| **1. Find roofs** | Which roofs and car parks should get solar, and what do they save? |
-| **2. Share with homes** | How can homeowners benefit through community solar (CREAM)? |
-| **3. Store energy** | Where do batteries pay off, and is the grid close by? |
+| **1. Community solar** | How can SDP run community solar (CREAM) in its own townships, and what does each household get: buy, finance or lease the roof? |
+| **2. Find roofs** | Which roofs and car parks should get solar, and what do they save? |
+| **3. Store energy** | Where does a battery make the most sense, and how long does it take to pay back? |
 
-The impact bar (MWp, GWh/yr, CO₂/yr, bill savings) stays visible across all three. Click any site for a card
-with four headline numbers and expandable detail; **▶ Tour** walks through the story for the demo video.
+The impact bar stays visible across all three and gives the honest number: MWp on all viable roofs →
+MWp needing no special approval → MWp that pays back within 7 years, with the energy, CO₂ and savings
+of that last set. Click any site for a card with four headline numbers and expandable detail; **▶ Tour**
+walks through the story for the demo video.
 
 ## What it does
 
