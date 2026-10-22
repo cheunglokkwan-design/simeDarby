@@ -5,8 +5,71 @@
     "url": "https://huggingface.co/cakewalk/splat-data/resolve/main/train.splat",
     "title": "Sample scene (viewer test, not an SDP roof)",
     "source": "Tanks & Temples 'train' via antimatter15/splat",
-    "cameraUp": [0, -1, 0],
-    "camera": { "position": [-1, -4, 6], "lookAt": [0, 4, 0] },
-    "overlay": { "position": [0, 0, 0], "rotation": [180, 0, 0], "scale": 0.1 }
+    "cameraUp": [
+      0,
+      -1,
+      0
+    ],
+    "camera": {
+      "position": [
+        -1,
+        -4,
+        6
+      ],
+      "lookAt": [
+        0,
+        4,
+        0
+      ]
+    },
+    "overlay": {
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        180,
+        0,
+        0
+      ],
+      "scale": 0.1
+    }
+  },
+  "demo": {
+    "url": "splats/demo-house.splat",
+    "title": "Demo drone scan: team member's house (not an SDP site)",
+    "captured": "2026-10-22",
+    "source": "Drone video, 281 frames · COLMAP 4.2.1 + Brush 0.3 on an RTX 4070",
+    "cameraUp": [
+      0,
+      -1,
+      0
+    ],
+    "camera": {
+      "position": [
+        -3.44,
+        -0.91,
+        1.97
+      ],
+      "lookAt": [
+        0.8,
+        2.6,
+        3.3
+      ]
+    },
+    "overlay": {
+      "position": [
+        0.8,
+        2.93,
+        3.3
+      ],
+      "rotation": [
+        180,
+        0,
+        0
+      ],
+      "scale": 0.1
+    }
   }
 }
