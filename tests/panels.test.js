@@ -67,6 +67,28 @@ test('walkways split the array into blocks', () => {
   assert.ok(aisles.count > 0 && aisles.count < plain.count, 'walkways take some space');
 });
 
+test('full-sun scoring preserves valid narrow strings and smaller connected systems', () => {
+  for (const height of [3, 3.5]) {
+    const roof = [[0, 0], [30, 0], [30, height], [0, height], [0, 0]];
+    const physical = generatePanelLayout(roof);
+    assert.ok(physical.count > 0);
+    const scored = generatePanelLayout(roof, { score: () => 1 });
+    assert.equal(scored.count, physical.count, 'Scoring cannot erase a physically valid sunny string');
+    assert.equal(scored.meanSun, 1);
+    assert.equal(generatePanelLayout(roof, { score: () => 1, maxPanels: 5 }).count, 5);
+  }
+});
+
+test('fully shaded roofs and invalid exposure scores have finite empty results', () => {
+  const roof = [[0, 0], [20, 0], [20, 15], [0, 15], [0, 0]];
+  for (const score of [() => 0, () => NaN]) {
+    const result = generatePanelLayout(roof, { score });
+    assert.equal(result.count, 0);
+    assert.equal(result.kwp, 0);
+    assert.ok(result.meanSun == null || Number.isFinite(result.meanSun));
+  }
+});
+
 test('capped sunny layouts form solid blocks without stray panels', () => {
   const roof = [[0, 0], [60, 0], [60, 40], [0, 40], [0, 0]];
   const score = (x, y) => (Math.hypot(x - 30, y - 20) < 8 ? 0.2 : 0.9 + 0.1 * Math.sin(x) * Math.cos(y)); // shaded centre, noisy sun

@@ -28,12 +28,24 @@ export const ROOF_FLAGS = {
   'not-buildable': 'Not buildable (imagery check)'
 };
 
+export function roofStatus(site) {
+  const check = site.roofCheck;
+  return {
+    status: check?.status || 'unknown',
+    label: ({ 'existing-solar': 'Existing solar · excluded', 'partial-solar': 'Partial solar · excluded', 'not-buildable': 'Roof unavailable · excluded', unclear: 'Solar status unclear', 'checked-clear': 'No panels reported · unverified' })[check?.status] || 'Existing panels not checked',
+    note: check?.note || 'No source-referenced panel check is recorded for this roof.',
+    source: check?.source || 'No inspection source recorded',
+    date: check?.date || ''
+  };
+}
+
 // Flags that remove a site from the opportunity ranking and headline totals.
 export const EXCLUDING_FLAGS = ['Too small', ROOF_FLAGS['existing-solar'], ROOF_FLAGS['partial-solar'], ROOF_FLAGS['not-buildable']];
 
 export function roofCheck(s) {
+  if (s.mappedSolar?.length) return { status: 'existing-solar', note: `Mapped rooftop solar: ${s.mappedSolar.join(', ')}`, source: 'OpenStreetMap generator geometry; field confirmation required' };
   const checked = ROOF_CHECKS[s.id];
-  if (checked) return { ...checked, source: `${ROOF_CHECK_SOURCE}, ${ROOF_CHECK_DATE}` };
+  if (checked) return { ...checked, date: ROOF_CHECK_DATE, source: `${ROOF_CHECK_SOURCE}, ${ROOF_CHECK_DATE}` };
   if (s.tags?.['roof:material'] === 'solar_panels' || s.tags?.['generator:source'] === 'solar')
     return { status: 'existing-solar', note: 'Tagged as solar in OpenStreetMap', source: 'OpenStreetMap' };
   return null;

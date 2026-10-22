@@ -8,6 +8,7 @@ dist/
 .venv/
 .claude/
 /.playwright-mcp/
+/.sites/
 /before.png
 /qa-*.png
 /.drone-jobs/

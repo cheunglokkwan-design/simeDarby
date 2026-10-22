@@ -123,14 +123,14 @@ export function generatePanelLayout(footprint, options = {}) {
     }
     if (!candidates.length) continue;
     if (score) {
-      for (const k of candidates) k.sun = score(k.centre[0], k.centre[1]);
+      for (const k of candidates) {
+        const value = score(k.centre[0], k.centre[1]);
+        k.sun = Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
+      }
       const top = Math.max(...candidates.map((k) => k.sun));
-      let kept = candidates.filter((k) => k.sun >= minScoreShare * top);
-      // Drop stray positions in small sunny gaps: keep panels with at least 3 neighbours.
-      const at = new Set(kept.map((k) => `${k.r}:${k.col}`));
-      const neighbours = (k) => [-1, 0, 1].reduce((t, dr) => t + [-1, 0, 1].filter((dc) => (dr || dc) && at.has(`${k.r + dr}:${k.col + dc}`)).length, 0);
-      kept = kept.filter((k) => neighbours(k) >= 3);
-      // ...and drop small islands: connected groups of fewer than minGroup panels.
+      let kept = candidates.filter((k) => k.sun >= minScoreShare * top && k.sun > 0);
+      // Connected strings can be only one row wide. A neighbour-count rule
+      // wrongly deleted physically valid narrow roofs and string endpoints.
       const byKey = new Map(kept.map((k) => [`${k.r}:${k.col}`, k]));
       const group = new Map();
       for (const k of kept) {
@@ -145,14 +145,20 @@ export function generatePanelLayout(footprint, options = {}) {
           }
         }
       }
-      if (kept.length >= minGroup) kept = kept.filter((k) => group.get(k).length >= minGroup);
+      const largestGroup = Math.max(0, ...[...new Set(group.values())].map(members => members.length));
+      const requiredGroup = Math.min(minGroup, cap, largestGroup);
+      kept = kept.filter((k) => group.get(k).length >= requiredGroup);
       kept.sort((a, b) => (b.sun - a.sun) || (a.dist - b.dist));
       candidates.length = 0; candidates.push(...kept);
     } else {
       candidates.sort((a, b) => a.dist - b.dist);
     }
     let chosen = candidates.slice(0, cap);
-    if (score && chosen.length < candidates.length) chosen = consolidate(chosen, candidates, cap, Math.min(minGroup, cap)); // small systems are one small group
+    if (score && chosen.length < candidates.length) {
+      const compact = consolidate(chosen, candidates, cap, Math.min(minGroup, cap));
+      // Compactness is a preference, never evidence that a roof cannot fit PV.
+      if (compact.length) chosen = compact;
+    }
     const value = chosen.reduce((t, k) => t + (k.sun ?? 1), 0);
     if (!best || value > best.value) best = { chosen, value, shaded: (score ? candidates.length : 0) };
   }
@@ -161,7 +167,7 @@ export function generatePanelLayout(footprint, options = {}) {
   const sun = score ? best.chosen.map((k) => k.sun) : null;
   return {
     ...empty, panels, count: panels.length, kwp: panels.length * watt / 1000, exclusions,
-    ...(sun ? { sun, meanSun: sun.reduce((t, v) => t + v, 0) / sun.length, basis: 'mapped-footprint + sun raycast' } : {})
+    ...(sun ? { sun, meanSun: sun.length ? sun.reduce((t, v) => t + v, 0) / sun.length : null, basis: 'mapped-footprint + sampled shadow exposure' } : {})
   };
 }
 

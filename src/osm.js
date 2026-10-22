@@ -11,7 +11,7 @@ const OVERPASS_URLS = [
 const KEEP_TAGS = [
   'building', 'building:levels', 'height', 'roof:shape', 'roof:material', 'name',
   'amenity', 'shop', 'office', 'industrial', 'landuse', 'parking', 'healthcare', 'historic',
-  'generator:source'
+  'generator:source', 'generator:place', 'location', 'power'
 ];
 
 const COMMUNITY_RE = 'school|kindergarten|college|university|clinic|hospital|doctors|community_centre|library';
@@ -22,6 +22,7 @@ export function buildQuery([s, w, n, e]) {
 (
   way["building"](${bb});
   way["amenity"="parking"](${bb});
+  nwr["generator:source"="solar"](${bb});
   nwr["amenity"~"^(${COMMUNITY_RE})$"](${bb});
   nwr["healthcare"](${bb});
   nwr["power"="substation"](${bb});
@@ -77,8 +78,13 @@ export function normalise(json) {
   const parking = [];
   const community = [];
   const substations = [];
+  const solar = [];
   for (const el of json.elements || []) {
     const t = el.tags || {};
+    if (t['generator:source'] === 'solar') {
+      const position = centroidOf(el);
+      if (position) solar.push({ id: `${el.type}/${el.id}`, position, tags: pickTags(t), polygon: ring(el.geometry) });
+    }
     const isCommunity =
       (t.amenity && new RegExp(`^(${COMMUNITY_RE})$`).test(t.amenity)) || t.healthcare;
     if (isCommunity) {
@@ -96,5 +102,5 @@ export function normalise(json) {
     else if (t.amenity === 'parking' && t.parking !== 'underground' && t.parking !== 'multi-storey')
       parking.push({ id: `way/${el.id}`, tags: pickTags(t), polygon });
   }
-  return { fetchedAt: new Date().toISOString(), buildings, parking, community, substations };
+  return { fetchedAt: new Date().toISOString(), buildings, parking, community, substations, solar };
 }

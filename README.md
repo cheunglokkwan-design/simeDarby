@@ -29,21 +29,22 @@ and export CSV, geographic outlines, a JSON evidence/assumptions bundle and an
 expert review template. Expert assessment fields start blank; no comparison
 results, field accuracy or successful hosted GPU run are claimed.
 
-Home finance, CREAM and batteries remain under **Other scenarios**. Drone scans
-and panel layouts are optional aids within the evidence review.
+**Community solar** and **Battery storage** are visible secondary workspaces.
+Home finance remains a supporting disclosure. Drone scans and panel layouts are
+optional aids within the evidence review. The [demo run sheet](docs/hackathon-demo-run-sheet.md)
+keeps the recording focused on one site and its study handover.
 
 ## Supporting analysis
 
 | Tab | Question it answers |
 |---|---|
-| **Prioritise sites** | Which rooftops and car parks should receive detailed feasibility studies first? |
-| **Other scenarios → Homes & CREAM** | What could home finance or proposed shared-power groups look like? |
-| **Other scenarios → Battery scenarios** | Where could storage be worth further assessment? |
+| **Site screening** (default) | Which rooftops and car parks should receive detailed feasibility studies first? |
+| **Community solar** | Which proposed home-roof groups could supply nearby businesses? Home finance is a supporting disclosure. |
+| **Battery storage** | Where could storage be worth further assessment? |
 
 The expandable capacity summary separates modelled MWp on all viable mapped roofs →
 MWp with no mapped heritage or strata flags → MWp that pays back within 7 years, with the energy, CO₂ and savings
-of that last set. Click any site for a card with four headline numbers and expandable detail; **▶ Tour**
-walks through the story for the demo video.
+of that last set. Select a site to keep its candidate list visible alongside **Priority → Evidence → Handover** on desktop. On phones, the study workspace opens full-screen with a **View map** switch. **Demo tour** walks through the screening story.
 
 ## What it does
 
@@ -51,23 +52,23 @@ walks through the story for the demo video.
 |---|---|
 | **Procedural 3D township** | OpenStreetMap footprints from the Overpass API, extruded with deck.gl on a MapLibre basemap |
 | **Height estimation** | OSM `height` → `building:levels` × 3.2 m → default by building type → footprint-size inference (`src/heights.js`) |
-| **Line-of-sight shading** | Web Worker raycasts from each roof toward 40+ sun positions across the year, against neighbouring buildings, giving an annual unshaded fraction (`src/shading.worker.js`) |
+| **Line-of-sight shading** | Web Worker raycasts from interior roof/canopy samples toward sun positions on four representative dates. This is sampled building-shadow exposure used as a yield proxy, not measured annual irradiation (`src/shading.worker.js`) |
 | **Live sun & shadows** | Month and time sliders (on the Find roofs tab) drive deck.gl's sun light with real-time shadows |
 | **Demand proxy scoring** | Building type → energy intensity × floors (OSM-tagged floors only; untagged sheds count as one floor) and daytime share → self-consumption ratio (`src/solar.js`) |
-| **Car park canopies** | OSM surface car parks shown as proposed 4.5 m solar canopies |
+| **Car park canopies** | OSM surface car parks shown as proposed 4.5 m solar canopies; they receive building-shadow calculations and need a linked host load, daytime share and tariff before savings/payback are shown |
 | **ROI calculator** | kWp, kWh/yr, CAPEX, savings, O&M, payback. Business solar is credited at the energy charge only (per-kW capacity and network charges are left to batteries). Assumptions are editable and can be overridden from Supabase |
-| **Solar ATAP economics** | Exports paid at the System Marginal Price; systems capped at 1 MW or peak demand (15 kW for homes) |
+| **Financial scenario assumptions** | Editable export values and system caps are screening assumptions; verify the applicable scheme, tariff and connection before relying on them |
 | **pvlib yield model** | Hourly PVGIS-ERA5 2005–2023 per township: Perez transposition, SAPM temperature, DC/AC 1.2 clipping, 0.5 %/yr degradation, P50/P90 across weather years, roof tilt and orientation from the footprint (`scripts/pvlib_yield.py`) |
 | **Grid checks** | Distance to the nearest OSM-mapped substation, flagged beyond 1 km (shown, not scored, because coverage is incomplete) |
 | **Solar homes & CREAM** | Per-home options (buy, add to the mortgage, lease the roof); CREAM zones match leased roofs to buyers within 5 km at each buyer's tariff less a discount, with the 9 sen/kWh access charge, O&M, lease income and the install price needed for a 10-year payback (`src/cream.js`) |
 | **Battery storage** | Behind-the-meter candidates sized and valued with NREL PySAM peak-shaving dispatch on load archetypes, with grid, flood, fire and space siting checks (`scripts/pysam_storage.py`, `src/storage.js`) |
 | **Carbon offset tracker** | kWh × grid emission factor gives tonnes CO₂ per site and per township |
 | **Engineering flags** | Too small, heavy shading, heritage/religious zoning review, strata approval |
-| **Exportable shortlist** | Ranked CSV, GeoJSON and KML (extruded for Google Earth; loads into QGIS, HelioScope or PVsyst), optionally saved to Supabase |
-| **Site brief** | One-page pre-feasibility brief per site (panels, P50/P90 output, savings, CO₂, battery option, footprint plan), saved as PDF from the browser |
+| **Study shortlist** | Selected portfolio totals, source-referenced panel checks, reported property control, study actions and an initial selection snapshot. Excluded/on-hold selections remain visible but are omitted from active portfolio totals |
+| **Study export** | Printable site and portfolio briefs, CSV expert-review templates, evidence/assumptions JSON, GeoJSON and KML. Warnings and study metadata follow the selected sites; PDF uses the browser print dialog |
 | **Affordable housing** | Affordable-scheme blocks flagged as CREAM lease-income candidates (`src/affordable.js`) |
 | **Open roof registry** | Every roof per township as open GeoJSON under ODbL (`registry/`, `npm run registry`) |
-| **Google Solar API check** | Compares our roof capacity with Google's for 30 sampled homes (`npm run google-check`, needs your own API key) |
+| **Google Solar comparison script** | A configurable capacity-comparison script for sampled homes (`npm run google-check`, needs your own API key); the presence of the script does not establish completed validation |
 | **Drone scans** | Per-roof Gaussian splats registered in `public/splats/scans.json`, viewed in-app with our predicted outline and panel area overlaid, an Align tool and a findings checklist (see `docs/drone-scans.md`) |
 
 Townships included: **Ara Damansara** (~4.6k buildings) and **Bandar Bukit Raja** (~7.3k buildings).

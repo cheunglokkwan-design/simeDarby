@@ -32,10 +32,29 @@ function sunSamples(lat, lon) {
 
 // items: [{xy, bbox, height, centroid, skip}] in local metres.
 // Returns a Float32Array of annual unshaded fractions (0-1).
+export function roofSamplePoints(it) {
+  const [cx, cy] = it.centroid;
+  const [x0, y0, x1, y1] = it.bbox;
+  const candidates = [[cx, cy], [(cx + x0) / 2, (cy + y0) / 2], [(cx + x1) / 2, (cy + y1) / 2]];
+  let points = candidates.filter(([x, y]) => pointInPolygon(x, y, it.xy));
+  // A concave footprint's centroid may be outside. Use interior grid samples
+  // instead of casting rays from a courtyard or a missing roof section.
+  if (points.length < 3) {
+    for (let iy = 1; iy < 8; iy++) for (let ix = 1; ix < 8; ix++) {
+      const point = [x0 + (x1 - x0) * ix / 8, y0 + (y1 - y0) * iy / 8];
+      if (pointInPolygon(...point, it.xy)) points.push(point);
+    }
+    points = points.filter((p, i, all) => all.findIndex(q => Math.hypot(p[0] - q[0], p[1] - q[1]) < .001) === i);
+    if (points.length > 5) points = [0, .25, .5, .75, 1].map(t => points[Math.round(t * (points.length - 1))]);
+  }
+  return points;
+}
+
 export function computeShading(lat, lon, items, onProgress = () => {}) {
   const grid = new Map();
   const key = (i, j) => i * 100003 + j;
   items.forEach((it, idx) => {
+    if (it.occluder === false) return;
     const [x0, y0, x1, y1] = it.bbox;
     for (let i = Math.floor(x0 / CELL); i <= Math.floor(x1 / CELL); i++)
       for (let j = Math.floor(y0 / CELL); j <= Math.floor(y1 / CELL); j++) {
@@ -44,19 +63,15 @@ export function computeShading(lat, lon, items, onProgress = () => {}) {
         grid.get(k).push(idx);
       }
   });
-  const maxH = items.reduce((m, it) => Math.max(m, it.height), 0);
+  const maxH = items.reduce((m, it) => it.occluder === false ? m : Math.max(m, it.height), 0);
   const suns = sunSamples(lat, lon);
   const totalW = suns.reduce((s, p) => s + p.w, 0);
 
   const result = new Float32Array(items.length);
   items.forEach((it, idx) => {
     if (it.skip) { result[idx] = 1; return; }
-    // Roof sample points: centroid + halfway toward two opposite bbox corners.
-    const [cx, cy] = it.centroid;
-    const [x0, y0, x1, y1] = it.bbox;
-    const pts = [[cx, cy], [(cx + x0) / 2, (cy + y0) / 2], [(cx + x1) / 2, (cy + y1) / 2]].filter(
-      ([x, y], i) => i === 0 || pointInPolygon(x, y, it.xy)
-    );
+    const pts = roofSamplePoints(it);
+    if (!pts.length) { result[idx] = NaN; return; }
     const z0 = it.height + 0.3;
     let lit = 0;
     for (const s of suns) {
@@ -94,6 +109,7 @@ export function makeExposure(lat, lon, items) {
   const grid = new Map();
   const key = (i, j) => i * 100003 + j;
   items.forEach((it, idx) => {
+    if (it.occluder === false) return;
     const [x0, y0, x1, y1] = it.bbox;
     for (let i = Math.floor(x0 / CELL); i <= Math.floor(x1 / CELL); i++)
       for (let j = Math.floor(y0 / CELL); j <= Math.floor(y1 / CELL); j++) {
@@ -102,7 +118,7 @@ export function makeExposure(lat, lon, items) {
         grid.get(k).push(idx);
       }
   });
-  const maxH = items.reduce((m, it) => Math.max(m, it.height), 0);
+  const maxH = items.reduce((m, it) => it.occluder === false ? m : Math.max(m, it.height), 0);
   const suns = sunSamples(lat, lon);
   const totalW = suns.reduce((s, p) => s + p.w, 0);
   return (px, py, z0, self = -1) => {

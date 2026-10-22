@@ -16,14 +16,17 @@
         <div><b>Solar Opportunity Mapper</b><small>Sime Darby Property</small></div>
       </div>
       <select id="township" aria-label="Township"></select>
-      <nav id="tabs" role="tablist" aria-label="Features">
-        <button role="tab" data-tab="find">Prioritise sites</button>
+      <nav id="tabs" role="tablist" aria-label="Solar planning workspaces">
+        <button id="tab-find" role="tab" data-tab="find" aria-controls="panel" aria-selected="true">Site screening</button>
+        <button id="tab-share" role="tab" data-tab="share" aria-controls="panel" aria-selected="false" tabindex="-1" class="secondary-scenario">Community solar</button>
+        <button id="tab-store" role="tab" data-tab="store" aria-controls="panel" aria-selected="false" tabindex="-1" class="secondary-scenario">Battery storage</button>
       </nav>
-      <details id="analysis-menu"><summary>Other scenarios</summary><div class="dropdown"><button data-secondary-tab="share">Homes &amp; CREAM</button><button data-secondary-tab="store">Battery scenarios</button></div></details>
       <div class="tools">
         <button id="tourBtn" class="btn">Demo tour</button>
+        <button id="shortlistBtn" class="btn">Shortlist (0)</button>
+        <button id="exportBtn" class="btn primary">Export brief</button>
         <div class="menu">
-          <button id="exportBtn" class="btn" aria-haspopup="true" aria-expanded="false" aria-label="Export"><span class="hide-sm">Export </span>⤓</button>
+          <button id="formatsBtn" class="btn icon" aria-haspopup="true" aria-expanded="false" aria-label="Other export formats"><svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg></button>
           <div id="exportMenu" class="dropdown" hidden>
             <button data-export="csv">Study shortlist (CSV)</button>
             <button data-export="review">Expert review template (CSV)</button>
@@ -40,9 +43,9 @@
 
     <section id="impact" aria-label="Township impact"></section>
 
-    <aside id="panel" aria-live="polite"></aside>
-    <aside id="card" hidden></aside>
-    <button id="panelToggle" class="btn" aria-expanded="true" aria-controls="panel">Show more map</button>
+    <aside id="panel" aria-label="Site candidates"></aside>
+    <aside id="card" aria-label="Selected site" hidden></aside>
+    <button id="panelToggle" class="btn" aria-expanded="true" aria-controls="panel">View map</button>
 
     <details id="map-key" class="map-popover"><summary>Map key</summary><div id="legend"></div></details>
     <details id="map-options" class="map-popover"><summary>Map options</summary><div class="map-options-body"><div id="basemap" class="seg" role="group" aria-label="Basemap">

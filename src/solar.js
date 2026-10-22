@@ -1,5 +1,5 @@
 // Turn OSM features into candidate solar sites and score them.
-import { makeProjector, polygonArea, polygonCentroid, bboxOf, distanceM } from './geo.js';
+import { makeProjector, polygonArea, polygonCentroid, bboxOf, distanceM, pointInPolygon } from './geo.js';
 import { classify, estimateHeight, CATEGORY_LABEL } from './heights.js';
 import { isAffordable } from './affordable.js';
 import { roofCheck, ROOF_FLAGS, EXCLUDING_FLAGS } from './roof-checks.js';
@@ -138,6 +138,13 @@ export function buildSites(raw) {
   const mapped = raw.substations || [];
   const subs = mapped.length >= 5 ? mapped : [];
   for (const s of sites) {
+    // Join separately mapped rooftop generators as well as tags on buildings.
+    // Untagged point generators are not assumed to be rooftop installations.
+    s.mappedSolar = (raw.solar || []).filter(generator => {
+      if (generator.id === s.id || s.category === 'carpark') return false;
+      const rooftop = /roof/.test(`${generator.tags?.location || ''} ${generator.tags?.['generator:place'] || ''}`);
+      return pointInPolygon(...generator.position, s.polygon) && (rooftop || generator.polygon?.every(p => pointInPolygon(...p, s.polygon)));
+    }).map(generator => generator.id);
     let best = null, bestD = Infinity;
     for (const sub of subs) {
       const d = distanceM(s.position, sub.position);
@@ -173,12 +180,13 @@ export const GRID_FLAG = 'Far from mapped substation';
 // own, so only the 1 MW cap applies to them.
 export function atapCapKw(s, demand, a) {
   if (s.category === 'residential') return a.homeCapKw;
-  if (s.category === 'carpark' || s.category === 'canopy') return a.atapCapKw;
+  if ((s.category === 'carpark' || s.category === 'canopy') && !s.evidence?.hostSiteId) return a.atapCapKw;
   const peakKw = s.evidence?.peakKw ?? demand / (8760 * a.loadFactor);
   return Math.min(a.atapCapKw, peakKw);
 }
 
-export function priorityBreakdown({ kwh, selfUse, payback, shading = 1, flags = [] }) {
+export function priorityBreakdown({ kwh, selfUse, payback, shading = 1, energyShading, flags = [] }) {
+  shading = Number.isFinite(energyShading) ? energyShading : Number.isFinite(shading) ? shading : 1;
   const generation = clamp01((Math.log10(Math.max(kwh, 1)) - 3) / 4);
   const selfRatio = kwh > 0 ? selfUse / kwh : 0;
   const pay = clamp01((14 - payback) / 10);
@@ -197,8 +205,12 @@ export function scoreSites(sites, a, yieldData = null) {
   const lifeYears = yieldData?.model.lifetimeYears ?? 25;
   const lifeFactor = yieldData?.lifetimeFactor ?? 0.94; // 0.5 %/yr degradation
   for (const s of sites) {
-    const shading = s.shading ?? 1;
+    const shading = Number.isFinite(s.layoutSun) ? s.layoutSun : Number.isFinite(s.shading) ? s.shading : 1;
     const evidence = s.evidence || {};
+    const mappedCheck = roofCheck(s);
+    const knownExcluded = mappedCheck && ['existing-solar', 'partial-solar', 'not-buildable'].includes(mappedCheck.status);
+    // Unverified user notes cannot clear a known installed/unavailable roof.
+    s.roofCheck = evidence.solarStatus && !knownExcluded ? { status: evidence.solarStatus, note: 'User-reported roof inspection; independent confirmation required', source: evidence.solarSource || 'User-provided inspection', date: evidence.solarDate || '' } : mappedCheck;
     const usable = (Math.min(s.area, evidence.usableM2 ?? s.area * USABLE_FRACTION[s.category])) * (s.roofCheck?.status === 'partial-solar' ? 0.5 : 1); // part of the roof already carries panels
     const homes = homesIn(s, a);
     // Homes: real household use, not floor area. Others: floor-area demand proxy.
@@ -210,7 +222,10 @@ export function scoreSites(sites, a, yieldData = null) {
     // Homes are sized to cover their own yearly use, within ATAP's 15 kW per home.
     const homeSize = homes ? Math.min(a.homeCapKw * homes, demand / Math.max(1, y.p50 * shading)) : Infinity;
     const policyCap = atapCapKw(s, demand, a) * (homes || 1);
-    const kwp = Math.min(uncappedKwp, policyCap, homeSize, s.layoutKwCap ?? Infinity);
+    // A generated draft has already been sized against the default home demand.
+    // Use its actual module capacity when its improved exposure changes yield;
+    // otherwise the financial system size could disagree with the drawn panels.
+    const kwp = Math.min(uncappedKwp, policyCap, s.layoutKwCap != null ? Infinity : homeSize, s.layoutKwCap ?? Infinity);
     const atapCapped = !homes && policyCap < uncappedKwp && Math.abs(kwp - policyCap) < 1e-6;
     const kwh = kwp * y.p50 * shading;
     const kwhP90 = kwp * y.p90 * shading;
@@ -218,15 +233,20 @@ export function scoreSites(sites, a, yieldData = null) {
     const roofKwp = homes ? Math.min(uncappedKwp, a.homeCapKw * homes) : kwp;
     const roofKwh = roofKwp * y.p50 * shading;
     const lifetimeKwh = kwh * lifeYears * lifeFactor;
-    const selfUse = Math.min(kwh, demand * DAYTIME_SHARE[s.category]);
+    const hostRequired = s.category === 'carpark' || s.category === 'canopy';
+    const hostLinked = hostRequired && !!evidence.hostSiteId && evidence.annualKwh > 0 && evidence.daytimeShare > 0 && evidence.hostTariff > 0;
+    const economicsReady = !hostRequired || hostLinked;
+    const selfUse = Math.min(kwh, demand * (hostRequired ? (hostLinked ? evidence.daytimeShare : 0) : DAYTIME_SHARE[s.category]));
     const exported = kwh - selfUse;
     const capex = kwp * capexPerKwp(s, kwp, a);
     const om = capex * a.omPctCapex;
-    const tariff = tariffFor(s.category, a);
+    const tariff = hostLinked ? evidence.hostTariff : tariffFor(s.category, a);
     let exportValue = exported * a.exportSMP;
     // Conservative: export credits only offset the remaining bill (car parks feed their host building).
     if (a.exportCreditCap && demand > 0) exportValue = Math.min(exportValue, Math.max(0, demand - selfUse) * tariff);
-    const savings = selfUse * tariff + exportValue;
+    // An unlinked canopy is a physical screening candidate, not an export-only
+    // investment recommendation. Keep energy/costs, withhold financial benefit.
+    const savings = economicsReady ? selfUse * tariff + exportValue : null;
     const payback = savings > om ? capex / (savings - om) : Infinity;
     const co2 = (kwh * a.emissionFactor) / 1000;
 
@@ -246,7 +266,7 @@ export function scoreSites(sites, a, yieldData = null) {
     const excluded = flags.some((f) => EXCLUDING_FLAGS.includes(f));
     Object.assign(s, {
       usable, homes, roofKwp, roofKwh, kwp, kwh, demand, selfUse, exported, capex, om, savings, payback, co2,
-      atapCapped, kwhP90, lifetimeKwh, specificYield: y.p50, yieldP90: y.p90, yieldTilt: y.tilt,
+      atapCapped, kwhP90, lifetimeKwh, specificYield: y.p50, yieldP90: y.p90, yieldTilt: y.tilt, economicsReady, hostLinked, energyShading: shading,
       selfRatio: selfScore, flags, score, excluded, occupiedStoreys, demandSource
     });
   }
@@ -298,6 +318,7 @@ export function siteProperties(s, a, rank = null) {
     height_source: s.heightSource,
     usable_roof_m2: r(s.usable),
     unshaded_fraction: r(s.shading ?? 1, 2),
+    energy_shadow_factor: r(s.energyShading ?? s.shading ?? 1, 2),
     system_kwp: r(s.kwp, 1),
     panels: Math.floor((s.kwp * 1000) / a.panelWatt),
     atap_capped: s.atapCapped,
@@ -314,7 +335,17 @@ export function siteProperties(s, a, rank = null) {
     substation_distance_m: r(s.gridDistM),
     affordable_housing: !!s.affordable,
     score: r(s.score),
-    flags: s.flags.join('; ')
+    flags: s.flags.join('; '),
+    existing_solar_status: s.roofCheck?.status || 'unknown',
+    existing_solar_note: s.roofCheck?.note || 'Not checked',
+    existing_solar_source: s.roofCheck?.source || '',
+    economics_status: s.economicsReady === false ? 'Host load and tariff required' : 'Illustrative scenario; inputs unverified',
+    control_status: s.studyReview?.control || 'unknown',
+    asset_id: s.studyReview?.assetId || '',
+    study_stage: s.studyReview?.stage || 'screening',
+    next_action: s.studyReview?.nextAction || '',
+    responsible: s.studyReview?.responsible || '',
+    study_reference: s.studyReview?.reference || ''
   };
 }
 
@@ -361,10 +392,15 @@ export function toCSV(sites) {
     ['specific_yield_p50', (s) => s.specificYield.toFixed(0)], ['specific_yield_p90', (s) => s.yieldP90.toFixed(0)],
     ['annual_kwh_p50', (s) => s.kwh.toFixed(0)], ['annual_kwh_p90', (s) => s.kwhP90.toFixed(0)],
     ['lifetime_kwh_25yr', (s) => s.lifetimeKwh.toFixed(0)], ['self_consumption', (s) => s.selfRatio.toFixed(2)],
-    ['capex_rm', (s) => s.capex.toFixed(0)], ['annual_savings_rm', (s) => s.savings.toFixed(0)],
+    ['capex_rm', (s) => s.capex.toFixed(0)], ['annual_savings_rm', (s) => Number.isFinite(s.savings) ? s.savings.toFixed(0) : ''],
     ['payback_years', (s) => (Number.isFinite(s.payback) ? s.payback.toFixed(1) : '')],
     ['co2_tonnes_per_year', (s) => s.co2.toFixed(1)], ['score', (s) => s.score.toFixed(0)],
-    ['flags', (s) => s.flags.join('; ')]
+    ['flags', (s) => s.flags.join('; ')],
+    ['existing_solar_status', s => s.roofCheck?.status || 'unknown'],
+    ['existing_solar_note', s => s.roofCheck?.note || 'Not checked'],
+    ['existing_solar_source', s => s.roofCheck?.source || ''],
+    ['economics_status', s => s.economicsReady === false ? 'Host load and tariff required' : 'Illustrative scenario'],
+    ['energy_shadow_factor', s => (s.energyShading ?? s.shading ?? 1).toFixed(2)]
   ];
   // Quote values with commas or quotes; neutralise text starting with = + - @ so OSM names can't run as spreadsheet formulas.
   const safe = (v) => (typeof v === 'string' && /^[=+\-@]/.test(v) && Number.isNaN(Number(v)) ? `'${v}` : v);
