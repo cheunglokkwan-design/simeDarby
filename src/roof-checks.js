@@ -29,7 +29,7 @@ export const ROOF_FLAGS = {
 };
 
 // Flags that remove a site from the opportunity ranking and headline totals.
-export const EXCLUDING_FLAGS = ['Too small', ROOF_FLAGS['existing-solar'], ROOF_FLAGS['not-buildable']];
+export const EXCLUDING_FLAGS = ['Too small', ROOF_FLAGS['existing-solar'], ROOF_FLAGS['partial-solar'], ROOF_FLAGS['not-buildable']];
 
 export function roofCheck(s) {
   const checked = ROOF_CHECKS[s.id];

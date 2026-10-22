@@ -10,7 +10,8 @@ const OVERPASS_URLS = [
 
 const KEEP_TAGS = [
   'building', 'building:levels', 'height', 'roof:shape', 'roof:material', 'name',
-  'amenity', 'shop', 'office', 'industrial', 'landuse', 'parking', 'healthcare', 'historic'
+  'amenity', 'shop', 'office', 'industrial', 'landuse', 'parking', 'healthcare', 'historic',
+  'generator:source'
 ];
 
 const COMMUNITY_RE = 'school|kindergarten|college|university|clinic|hospital|doctors|community_centre|library';
