@@ -6,6 +6,7 @@
 // viewer's camera, so it always draws on top of the splat.
 import * as THREE from 'three';
 import * as GaussianSplats3D from '@mkkellogg/gaussian-splats-3d';
+import { getLocalScan, saveLocalScan } from './scans.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -22,6 +23,8 @@ let site = null;
 let scan = null;
 let overlay = { ...DEFAULT_OVERLAY };
 let viewer = null;
+let objectUrl = null;
+let scanLoaded = false;
 
 function toast(text) {
   const t = $('toast');
@@ -103,7 +106,7 @@ function renderSide() {
   $('subtitle').textContent = [s?.category, scan?.captured, scan?.source].filter(Boolean).join(' · ');
   const badge = $('badge');
   if (isSample) { badge.textContent = 'Sample scene: not an SDP roof'; badge.className = 'badge none'; }
-  else if (scan) { badge.textContent = 'Drone-verified'; badge.className = 'badge'; }
+  else if (scan) { badge.textContent = scan.reviewed ? 'Scan reviewed' : 'Scan available · awaiting review'; badge.className = 'badge'; }
   else { badge.textContent = 'No scan registered yet'; badge.className = 'badge none'; }
   const rows = s ? [
     ['Roof footprint', `${fmt(s.area)} m²`],
@@ -115,6 +118,9 @@ function renderSide() {
   $('predictions').innerHTML = rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
   if (scan?.findings) for (const [k, v] of Object.entries(scan.findings)) { const el = $(`f-${k}`); if (el) el.value = v; }
   if (scan?.captured || scan?.source) $('f-captured').value = [scan.captured, scan.source].filter(Boolean).join(' · ');
+  $('reviewed').checked = !!scan?.reviewed;
+  $('saveAlign').hidden = $('saveReview').hidden = isSample || !siteId;
+  $('saveAlign').disabled = $('saveReview').disabled = !scanLoaded;
 }
 
 document.querySelector('.tabs').addEventListener('click', (e) => {
@@ -157,7 +163,7 @@ const overlayJSON = () => ({ position: overlay.position.map((v) => +v.toFixed(2)
 $('copyAlign').onclick = () => copy(JSON.stringify({ overlay: overlayJSON() }), 'Alignment');
 $('resetAlign').onclick = () => { overlay = structuredClone(scan?.overlay || DEFAULT_OVERLAY); applyOverlay(); renderSliders(); };
 
-$('copyEntry').onclick = () => {
+function scanEntry() {
   const findings = {};
   for (const k of ['roofType', 'obstructions', 'existingPanels', 'condition', 'heightCheck', 'areaCheck', 'notes']) {
     const v = $(`f-${k}`).value.trim();
@@ -165,22 +171,81 @@ $('copyEntry').onclick = () => {
   }
   const [captured, ...source] = $('f-captured').value.split('·').map((x) => x.trim());
   const entry = {
-    url: scan?.url || `/splats/${(site?.id || 'site').replace('/', '-')}.ksplat`,
+    url: scan?.url || `/splats/${(site?.id || siteId || 'site').replace('/', '-')}.${scan?.format || 'ksplat'}`,
     title: site?.name || scan?.title || '',
     captured: captured || undefined,
     source: source.join(' · ') || scan?.source,
     cameraUp: scan?.cameraUp,
-    camera: scan?.camera,
+    camera: viewer?.camera ? { position: viewer.camera.position.toArray(), lookAt: viewer.controls.target.toArray() } : scan?.camera,
     overlay: overlayJSON(),
     findings
   };
-  copy(JSON.stringify({ [site?.id || 'way/<osm id>']: entry }, null, 2), 'Scan entry');
+  return entry;
+}
+$('copyEntry').onclick = () => {
+  copy(JSON.stringify({ [site?.id || siteId || 'way/<osm id>']: { ...scanEntry(), reviewed: $('reviewed').checked } }, null, 2), 'Scan entry');
 };
+
+async function saveReview(alignmentOnly = false) {
+  if (!scanLoaded || !scan || !siteId || isSample) return;
+  const status = $('saveStatus');
+  const buttons = [$('saveAlign'), $('saveReview')];
+  buttons.forEach((button) => (button.disabled = true));
+  status.textContent = 'Saving…';
+  status.classList.remove('error');
+  try {
+    const entry = scanEntry();
+    if (!alignmentOnly && $('reviewed').checked && !Object.keys(entry.findings).length) {
+      throw new Error('Record at least one finding before marking this scan reviewed.');
+    }
+    const existing = await getLocalScan(siteId);
+    const record = { ...(existing || scan), ...entry, id: siteId,
+      findings: alignmentOnly ? scan.findings || {} : entry.findings,
+      reviewed: alignmentOnly ? false : $('reviewed').checked };
+    // An imported file is resolved through IndexedDB, not through a synthetic published URL.
+    if (record.file) delete record.url;
+    await saveLocalScan(record);
+    scan = record;
+    renderSide();
+    status.textContent = alignmentOnly ? 'Alignment saved on this device. Review the roof under Findings.' : 'Findings saved on this device.';
+    window.parent.postMessage({ type: 'scan-saved', id: siteId }, location.origin);
+    toast(alignmentOnly ? 'Alignment saved' : 'Findings saved');
+  } catch (err) {
+    status.textContent = err.message;
+    status.classList.add('error');
+  } finally { buttons.forEach((button) => (button.disabled = false)); }
+}
+$('saveAlign').onclick = () => saveReview(true);
+$('saveReview').onclick = () => saveReview();
+
+function fitScan() {
+  const mesh = viewer.splatMesh;
+  const count = mesh.getSplatCount();
+  const center = new THREE.Vector3();
+  const bounds = new THREE.Box3();
+  for (let i = 0; i < count; i += Math.max(1, Math.ceil(count / 2000))) {
+    mesh.getSplatCenter(i, center, true);
+    if (center.toArray().every(Number.isFinite)) bounds.expandByPoint(center);
+  }
+  if (bounds.isEmpty()) return;
+  bounds.getCenter(center);
+  const radius = Math.max(1, bounds.getSize(new THREE.Vector3()).length() / 2);
+  viewer.controls.target.copy(center);
+  viewer.camera.position.copy(center).add(new THREE.Vector3(0, radius, radius * 1.6));
+  viewer.camera.lookAt(center);
+  viewer.controls.update();
+}
+$('fitScan').onclick = () => { if (scanLoaded) fitScan(); };
 
 // ---------- splat ----------
 async function loadSplat() {
   const reg = await fetch('/splats/scans.json').then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
-  scan = isSample ? reg.sample : reg.scans?.[siteId] || site?.scan || null;
+  let local = null;
+  if (!isSample && siteId) {
+    try { local = await getLocalScan(siteId); }
+    catch (err) { $('saveStatus').textContent = err.message; }
+  }
+  scan = isSample ? reg.sample : local || site?.scan || reg.scans?.[siteId] || null;
   if (isSample && !site) site = DEMO_SITE;
   overlay = structuredClone(scan?.overlay || DEFAULT_OVERLAY);
   buildOverlay(site);
@@ -188,42 +253,60 @@ async function loadSplat() {
   renderSliders();
   renderSide();
 
-  if (!scan?.url) {
+  if (!scan?.url && !scan?.file) {
     const e = $('empty');
     e.hidden = false;
-    e.innerHTML = `<div><b>No drone scan for this roof yet</b>Fly the roof, process it into a splat and add it to <code>public/splats/scans.json</code> (see docs/drone-scans.md).</div>`;
+    e.innerHTML = `<div><b>No drone scan for this roof yet</b>Close this viewer and choose Add drone scan on the building's card to import a finished Gaussian splat.</div>`;
     return;
   }
-  viewer = new GaussianSplats3D.Viewer({
+  const progress = $('progress');
+  progress.hidden = false;
+  progress.textContent = 'Opening 3D scan…';
+  try {
+    viewer = new GaussianSplats3D.Viewer({
     rootElement: $('viewer'),
     cameraUp: scan.cameraUp || [0, 1, 0],
     initialCameraPosition: scan.camera?.position || [0, 40, 60],
     initialCameraLookAt: scan.camera?.lookAt || [0, 0, 0],
     sharedMemoryForWorkers: false // no COOP/COEP headers needed
-  });
-  const progress = $('progress');
-  progress.hidden = false;
-  try {
-    await viewer.addSplatScene(scan.url, {
+    });
+    const path = scan.file ? (objectUrl = URL.createObjectURL(scan.file)) : scan.url;
+    const formats = { ply: GaussianSplats3D.SceneFormat.Ply, splat: GaussianSplats3D.SceneFormat.Splat, ksplat: GaussianSplats3D.SceneFormat.KSplat };
+    await viewer.addSplatScene(path, {
+      ...(scan.format ? { format: formats[scan.format] } : {}),
       showLoadingUI: false,
       progressiveLoad: true,
       onProgress: (pct) => (progress.textContent = `Loading scan… ${Math.round(pct)}%`)
     });
     viewer.start();
+    scanLoaded = true;
+    if (scan.file && !scan.camera) fitScan();
+    $('fitScan').disabled = false;
+    renderSide();
     progress.hidden = true;
     requestAnimationFrame(renderLoop);
   } catch (err) {
-    progress.textContent = `Could not load the scan: ${err.message}`;
+    progress.textContent = 'Could not open this scan. Close the viewer and import a valid Gaussian splat export, or try a smaller file.';
+    console.error('Scan load failed:', err);
   }
 }
 
 // The parent app posts the site's footprint and estimates after the frame loads.
 let started = false;
 window.addEventListener('message', (e) => {
-  if (e.origin !== location.origin || e.data?.type !== 'site' || started) return;
+  if (e.origin !== location.origin || e.source !== window.parent || e.data?.type !== 'site' || started) return;
   started = true;
   site = e.data.site;
-  loadSplat();
+  loadSplat().catch(showLoadError);
 });
-// Standalone use (no parent message within a moment): load from the URL alone.
-setTimeout(() => { if (!started) { started = true; loadSplat(); } }, 400);
+function showLoadError(err) {
+  $('progress').hidden = false;
+  $('progress').textContent = `The scan could not be opened. ${err.message}`;
+}
+if (window.parent === window || isSample) { started = true; loadSplat().catch(showLoadError); }
+else window.parent.postMessage({ type: 'scan-ready' }, location.origin);
+window.addEventListener('pagehide', () => {
+  if (objectUrl) URL.revokeObjectURL(objectUrl);
+  viewer?.dispose();
+  renderer.dispose();
+});

@@ -1,5 +1,27 @@
 # Drone scans: from flight to the app
 
+## Import and review on localhost
+
+Select a building in **Find roofs**, then choose **Add drone scan**. Import a
+finished Gaussian `.ply`, `.splat` or `.ksplat` file (up to 200 MB). Files,
+alignment and findings are saved in IndexedDB in this browser on this device;
+they are not uploaded or shared. Keep the original files. Browser data is scoped
+to the exact origin, so `localhost` and `127.0.0.1` have separate scan libraries.
+
+In the viewer, use **Align → Save alignment**, then **Findings → Save findings**.
+The status becomes **Scan reviewed** only after recording findings and checking
+the review checkbox. Saving a new alignment resets that status. This is a visual
+review, not measurement or structural certification. Removing a local scan
+restores the published entry, if one exists.
+
+Raw drone-video reconstruction and automatic panel-layout generation are not
+implemented in this version. A deployable remote GPU worker is planned; no worker
+hosting or credentials have been configured.
+
+The manual publishing workflow below remains available for shared scan assets.
+Its older "Drone-verified" wording now corresponds to "Scan available" until a
+review is explicitly saved.
+
 A drone scan turns a shortlisted roof from "our estimate" into "checked". In the
 app, a scanned roof's card gets a **Drone-verified** badge and a **View drone
 scan (3D)** button. The viewer draws our predicted roof outline (yellow) and

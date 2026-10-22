@@ -16,12 +16,12 @@
       </div>
       <select id="township" aria-label="Township"></select>
       <nav id="tabs" role="tablist" aria-label="Features">
-        <button role="tab" data-tab="share"><span>1</span>Community solar</button>
-        <button role="tab" data-tab="find"><span>2</span>Find roofs</button>
-        <button role="tab" data-tab="store"><span>3</span>Store energy</button>
+        <button role="tab" data-tab="find">Find roofs</button>
+        <button role="tab" data-tab="share">Community solar</button>
+        <button role="tab" data-tab="store">Battery storage</button>
       </nav>
       <div class="tools">
-        <button id="tourBtn" class="btn primary">▶ Tour</button>
+        <button id="tourBtn" class="btn">Guided tour</button>
         <div class="menu">
           <button id="exportBtn" class="btn" aria-haspopup="true" aria-expanded="false" aria-label="Export"><span class="hide-sm">Export </span>⤓</button>
           <div id="exportMenu" class="dropdown" hidden>
@@ -63,7 +63,7 @@
       <p class="note">Buildings, car parks and substations © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors. Basemap © CARTO; imagery © Esri.<span id="db"></span></p>
       <button id="refresh" class="btn">Re-fetch live OSM data</button>
       <h3>Drone scans</h3>
-      <p class="note">Scanned roofs are listed in <code>public/splats/scans.json</code> and open from their site card. The sample scene below is for testing the viewer only.</p>
+      <p class="note">Select a building, then choose <b>Add drone scan</b> to import a finished 3D Gaussian splat. Imports and review findings stay in this browser on this device. Keep a copy of your original files.</p>
       <button id="sampleScan" class="btn">Open 3D viewer with sample scene</button>
     </aside>
 
