@@ -14,7 +14,7 @@ export function planStorage(sites, a, storageData) {
   const out = [];
   for (const s of sites) {
     const kind = ARCHETYPE[s.category];
-    if (!kind || s.flags.includes('Too small')) continue;
+    if (!kind || s.excluded) continue;
     const peakKw = s.evidence?.peakKw ?? s.demand / (8760 * a.loadFactor);
     if (peakKw < MIN_PEAK_KW) continue;
     const surplus = s.atapCapped || s.exported > 0.1 * s.kwh;

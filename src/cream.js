@@ -8,7 +8,7 @@ const CELL_DEG = 0.005; // ~550 m clustering grid
 const BUYER_CATEGORIES = new Set(['retail', 'commercial', 'industrial', 'institutional', 'apartments']);
 
 export function planCream(sites, a) {
-  const homes = sites.filter((s) => s.category === 'residential' && !s.flags.includes('Too small') &&
+  const homes = sites.filter((s) => s.category === 'residential' && !s.excluded &&
     !['dormitory', 'townhouse', 'apartments'].includes(s.tags?.building));
 
   // Each buyer can absorb the daytime demand its own rooftop solar leaves unmet.
@@ -82,7 +82,7 @@ export function planCream(sites, a) {
   const homeKwp = homes.length ? homes.reduce((t, h) => t + h.roofKwp, 0) / count(homes) : 10;
   const leasePerKwp = a.leasePerRoof / homeKwp;
   const affordable = sites
-    .filter((s) => s.affordable && !s.flags.includes('Too small'))
+    .filter((s) => s.affordable && !s.excluded)
     .map((s) => ({ site: s, kwp: s.kwp, kwh: s.kwh, leaseIncome: s.kwp * leasePerKwp }))
     .sort((x, y) => y.leaseIncome - x.leaseIncome);
 

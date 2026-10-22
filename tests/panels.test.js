@@ -50,3 +50,39 @@ test('marked obstructions remove panels and can make the roof unusable', () => {
   for (const panel of blocked.panels) for (const [x] of panel) assert.ok(x >= 10.6 - 1e-8);
   assert.equal(generatePanelLayout(roof, { exclusions: [roof.slice(0, -1)] }).count, 0);
 });
+
+test('sun scoring skips shaded positions and fills the sunniest first', () => {
+  const roof = [[0, 0], [40, 0], [40, 20], [0, 20], [0, 0]];
+  const score = (x) => (x < 20 ? 0.3 : 1); // left half in shadow
+  const result = generatePanelLayout(roof, { maxPanels: 40, score });
+  assert.equal(result.count, 40);
+  assert.ok(result.panels.every((p) => p.every(([x]) => x >= 20 - 1e-6)), 'no panel in the shaded half');
+  assert.ok(result.meanSun > .99);
+});
+
+test('walkways split the array into blocks', () => {
+  const roof = [[0, 0], [30, 0], [30, 30], [0, 30], [0, 0]];
+  const plain = generatePanelLayout(roof);
+  const aisles = generatePanelLayout(roof, { walkwayRows: 4, walkwayCols: 12, walkway: 1 });
+  assert.ok(aisles.count > 0 && aisles.count < plain.count, 'walkways take some space');
+});
+
+test('capped sunny layouts form solid blocks without stray panels', () => {
+  const roof = [[0, 0], [60, 0], [60, 40], [0, 40], [0, 0]];
+  const score = (x, y) => (Math.hypot(x - 30, y - 20) < 8 ? 0.2 : 0.9 + 0.1 * Math.sin(x) * Math.cos(y)); // shaded centre, noisy sun
+  const result = generatePanelLayout(roof, { maxPanels: 300, score, setback: 1.2, walkwayRows: 4, walkwayCols: 12 });
+  const c = result.panels.map((p) => [(p[0][0] + p[2][0]) / 2, (p[0][1] + p[2][1]) / 2]);
+  const seen = new Array(c.length).fill(false);
+  let smallest = Infinity;
+  for (let i = 0; i < c.length; i++) {
+    if (seen[i]) continue;
+    let n = 0; const queue = [i]; seen[i] = true;
+    while (queue.length) {
+      const a = queue.pop(); n++;
+      for (let j = 0; j < c.length; j++) if (!seen[j] && Math.hypot(c[a][0] - c[j][0], c[a][1] - c[j][1]) < 3.6) { seen[j] = true; queue.push(j); }
+    }
+    smallest = Math.min(smallest, n);
+  }
+  assert.equal(result.count, 300);
+  assert.ok(smallest >= 12, `smallest group has ${smallest} panels`);
+});

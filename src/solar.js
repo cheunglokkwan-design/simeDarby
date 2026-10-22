@@ -2,6 +2,7 @@
 import { makeProjector, polygonArea, polygonCentroid, bboxOf, distanceM } from './geo.js';
 import { classify, estimateHeight, CATEGORY_LABEL } from './heights.js';
 import { isAffordable } from './affordable.js';
+import { roofCheck, ROOF_FLAGS, EXCLUDING_FLAGS } from './roof-checks.js';
 
 // Every number here is a demo assumption, editable in the UI and overridable
 // from the Supabase `assumptions` table. Verify against TNB / SEDA / Suruhanjaya
@@ -145,6 +146,7 @@ export function buildSites(raw) {
     s.gridDistM = best ? bestD : null;
     s.nearestSubstation = best ? best.name || best.id : null;
     s.affordable = isAffordable(s);
+    s.roofCheck = roofCheck(s);
   }
   return { sites, origin: [lon0, lat0] };
 }
@@ -182,7 +184,7 @@ export function scoreSites(sites, a, yieldData = null) {
   for (const s of sites) {
     const shading = s.shading ?? 1;
     const evidence = s.evidence || {};
-    const usable = Math.min(s.area, evidence.usableM2 ?? s.area * USABLE_FRACTION[s.category]);
+    const usable = (Math.min(s.area, evidence.usableM2 ?? s.area * USABLE_FRACTION[s.category])) * (s.roofCheck?.status === 'partial-solar' ? 0.5 : 1); // part of the roof already carries panels
     const homes = homesIn(s, a);
     // Homes: real household use, not floor area. Others: floor-area demand proxy.
     const occupiedStoreys = evidence.occupiedStoreys ?? Math.max(1, s.levels);
@@ -215,6 +217,7 @@ export function scoreSites(sites, a, yieldData = null) {
 
     const flags = [];
     if (kwp < a.minKwp) flags.push('Too small');
+    if (s.roofCheck && ROOF_FLAGS[s.roofCheck.status]) flags.push(ROOF_FLAGS[s.roofCheck.status]);
     if (shading < 0.75) flags.push('Heavy shading');
     if (s.tags.historic || /mosque|musalla|church|temple|religious/.test(s.tags.building || '') || s.tags.amenity === 'place_of_worship')
       flags.push('Zoning / heritage review');
@@ -229,12 +232,13 @@ export function scoreSites(sites, a, yieldData = null) {
     const scored = flags.filter((f) => f !== GRID_FLAG);
     const score =
       100 * (0.4 * genScore + 0.25 * selfScore + 0.2 * payScore + 0.15 * shading) *
-      (scored.includes('Too small') ? 0.3 : scored.length ? 0.8 : 1);
+      (scored.some((f) => EXCLUDING_FLAGS.includes(f)) ? 0.3 : scored.length ? 0.8 : 1);
 
+    const excluded = flags.some((f) => EXCLUDING_FLAGS.includes(f));
     Object.assign(s, {
       usable, homes, roofKwp, roofKwh, kwp, kwh, demand, selfUse, exported, capex, om, savings, payback, co2,
       atapCapped, kwhP90, lifetimeKwh, specificYield: y.p50, yieldP90: y.p90, yieldTilt: y.tilt,
-      selfRatio: selfScore, flags, score, occupiedStoreys, demandSource
+      selfRatio: selfScore, flags, score, excluded, occupiedStoreys, demandSource
     });
   }
   return sites;
@@ -244,7 +248,7 @@ export function scoreSites(sites, a, yieldData = null) {
 // -> those that pay back within the target. Impact figures use the last set.
 const NEEDS_APPROVAL = ['Zoning / heritage review', 'Strata approval needed'];
 export function funnel(sites, a) {
-  const all = sites.filter((s) => !s.flags.includes('Too small'));
+  const all = sites.filter((s) => !s.excluded);
   const noApproval = all.filter((s) => !s.flags.some((f) => NEEDS_APPROVAL.includes(f)));
   const fast = noApproval.filter((s) => s.payback <= a.paybackTarget && s.category !== 'unknown');
   const kwp = (list) => list.reduce((t, s) => t + s.kwp, 0);
@@ -258,7 +262,7 @@ export const monthlyPayment = (principal, rate, years) => {
 };
 
 export function summarise(sites) {
-  const ok = sites.filter((s) => !s.flags.includes('Too small'));
+  const ok = sites.filter((s) => !s.excluded);
   const sum = (k, list = ok) => list.reduce((t, s) => t + s[k], 0);
   const carparks = ok.filter((s) => s.category === 'carpark');
   return {

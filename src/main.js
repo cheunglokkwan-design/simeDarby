@@ -1,11 +1,11 @@
 import maplibregl from 'maplibre-gl';
 import { MapboxOverlay } from '@deck.gl/mapbox';
-import { AmbientLight, LightingEffect, _SunLight as SunLight } from '@deck.gl/core';
+import { AmbientLight, LightingEffect, WebMercatorViewport, _SunLight as SunLight } from '@deck.gl/core';
 import { PolygonLayer, SolidPolygonLayer, ScatterplotLayer, ArcLayer, TextLayer } from '@deck.gl/layers';
 
 import { TOWNSHIPS } from './townships.js';
 import { fetchOverpass } from './osm.js';
-import { convexHull, makeProjector } from './geo.js';
+import { convexHull, makeProjector, pointInPolygon } from './geo.js';
 import { DEFAULT_ASSUMPTIONS, GRID_FLAG, buildSites, scoreSites, summarise, funnel, monthlyPayment, toCSV, toGeoJSON, toKML } from './solar.js';
 import { siteBriefHTML } from './brief.js';
 import { planCream } from './cream.js';
@@ -13,6 +13,7 @@ import { planStorage } from './storage.js';
 import { supabase, loadAssumptionOverrides, saveShortlist } from './supabase.js';
 import { localScanMetadata, getLocalScan, saveLocalScan, removeLocalScan, validateSplat } from './scans.js';
 import { panelLayoutForSite } from './panels.js';
+import { makeExposure } from './shading.js';
 import { VIDEO_EXTENSIONS, droneHealth, uploadDroneVideo, droneJob, downloadDroneScan } from './drone.js';
 import { siteAddress, searchSites } from './search.js';
 import { loadEvidence, persistEvidence, validateEvidence } from './evidence.js';
@@ -120,6 +121,7 @@ function ramp(t) {
 const SUN_RAMP = (t) => [Math.round(20 + 171 * t), Math.round(105 + 150 * t), Math.round(140 + 23 * t)];
 const NEUTRAL = [86, 92, 106];
 const TOO_SMALL = [66, 68, 80];
+const HAS_SOLAR = [150, 110, 240]; // roofs that already carry panels (imagery check)
 const ZONE = [43, 159, 220];
 const ZONE_SEL = [125, 205, 250];
 const BUYER = [245, 245, 245];
@@ -133,7 +135,8 @@ function buildingColor(s) {
   if (state.selected === s) return SELECTED;
   if (state.tab === 'find') {
     if (!FILTERS[state.findFilter][1](s)) return NEUTRAL; // outside the chosen filter: dimmed
-    if (s.flags.includes('Too small')) return TOO_SMALL;
+    if (s.roofCheck?.status === 'existing-solar') return HAS_SOLAR;
+    if (s.excluded) return TOO_SMALL;
     return state.colorBy === 'sun' ? SUN_RAMP(s.shading ?? 1) : ramp(s.score / 100);
   }
 
@@ -211,7 +214,7 @@ function render() {
     const [, filter] = FILTERS[state.findFilter];
     layers.push(new PolygonLayer({
       id: 'roof-highlights',
-      data: buildings.filter((site) => !site.flags.includes('Too small') && filter(site)),
+      data: buildings.filter((site) => !site.excluded && filter(site)),
       getPolygon: (d) => d.polygon.map(([lon, lat]) => [lon, lat, state.satellite ? 0.5 : d.height + 0.25]),
       getFillColor: (d) => [...buildingColor(d), state.satellite ? 140 : 210],
       getLineColor: (d) => [...buildingColor(d), 255],
@@ -351,7 +354,7 @@ function render() {
       stroked: true, lineWidthMinPixels: .7, material: false, shadowEnabled: false, parameters: ON_TOP
     }));
   }
-  overlay.setProps({ layers, effects: [lightingEffect()], onClick });
+  overlay.setProps({ layers, effects: [lightingEffect()] });
 }
 
 function getTooltip({ object, layer }) {
@@ -378,6 +381,10 @@ function getTooltip({ object, layer }) {
         const b = state.batteryOf.get(s);
         return b ? { text: `${label(s)}\nBattery site · ${power(b.kw)}` } : null;
       }
+      if (s.roofCheck?.status === 'existing-solar') return { text: `${label(s)}
+Already has solar panels (${s.roofCheck.source})` };
+      if (s.roofCheck?.status === 'not-buildable') return { text: `${label(s)}
+${s.roofCheck.note}` };
       if (s.flags.includes('Too small')) return { text: `${label(s)}\nRoof too small for solar` };
       return { text: `${label(s)}\nScore ${fmt(s.score)}/100 · ${power(s.kwp)} · saves ${rm(s.savings)}/yr` };
     }
@@ -385,6 +392,42 @@ function getTooltip({ object, layer }) {
       return null;
   }
 }
+
+// Geometric picking: walk the camera ray through the clicked pixel from the
+// tallest roof down to the ground, and return the first building whose footprint
+// contains the ray at a height that building reaches. It needs no GPU readback,
+// so clicks still work when deck.gl's GPU picking returns nothing (e.g. when its
+// canvas size lags the map's).
+function pickBuildingAt(x, y) {
+  const rect = map.getContainer().getBoundingClientRect();
+  const c = map.getCenter();
+  const vp = new WebMercatorViewport({ width: rect.width, height: rect.height, longitude: c.lng, latitude: c.lat, zoom: map.getZoom(), pitch: map.getPitch(), bearing: map.getBearing() });
+  const pool = state.sites.filter((s) => (s.category === 'carpark' ? state.tab === 'find' : true));
+  for (const s of pool) {
+    if (s.llbox) continue;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const [lon, lat] of s.polygon) { x0 = Math.min(x0, lon); y0 = Math.min(y0, lat); x1 = Math.max(x1, lon); y1 = Math.max(y1, lat); }
+    s.llbox = [x0, y0, x1, y1];
+  }
+  const top = state.satellite ? 0 : Math.min(120, pool.reduce((m, s) => Math.max(m, s.height), 0));
+  for (let h = top; h >= 0; h -= 1) {
+    const [lon, lat] = vp.unproject([x, y], { targetZ: h });
+    for (const s of pool) {
+      if (!state.satellite && s.height < h) continue;
+      const [x0, y0, x1, y1] = s.llbox;
+      if (lon < x0 || lon > x1 || lat < y0 || lat > y1) continue;
+      if (pointInPolygon(lon, lat, s.polygon)) return s;
+    }
+  }
+  return null;
+}
+map.on('click', (e) => {
+  const { x, y } = e.point;
+  const hit = overlay.pickObject({ x, y, radius: 4 });
+  if (hit?.object) return onClick(hit);
+  const s = pickBuildingAt(x, y);
+  if (s) onClick({ object: s, layer: { id: s.category === 'carpark' ? 'carparks' : 'buildings' } });
+});
 
 function onClick({ object, layer }) {
   if (!object || !layer) return;
@@ -457,6 +500,15 @@ function renderPanel() {
   else el.innerHTML = storePanel();
 }
 
+// Evidence line: how many top roofs were checked in imagery, and what was excluded.
+function roofCheckNote() {
+  const checked = state.sites.filter((s) => s.roofCheck);
+  if (!checked.length) return "";
+  const has = checked.filter((s) => s.roofCheck.status === "existing-solar").length;
+  const gone = checked.filter((s) => s.roofCheck.status === "not-buildable").length;
+  return `<p class="note"><b>Checked in satellite imagery:</b> ${has} top roof${has === 1 ? "" : "s"} already ${has === 1 ? "has" : "have"} solar${gone ? ` and ${gone} ${gone === 1 ? "is" : "are"} no longer a building` : ""}, so ${has + gone === 1 ? "it is" : "they are"} left out of the ranking and totals.</p>`;
+}
+
 function findPanel() {
   const [, test] = FILTERS[state.findFilter];
   const matches = searchSites(state.query.trim() ? [...state.sites].sort((a, b) => b.score - a.score) : state.ranked, state.query).filter(test);
@@ -477,6 +529,7 @@ function findPanel() {
     <input id="property-search" type="search" value="${esc(state.query)}" placeholder="Building, mapped address or OSM ID" aria-describedby="search-help" />
     <p class="note" id="search-help">Search this township's mapped properties. Missing an address? Select the building on the map; its ID confirms the site.</p>
     <h3 class="list-heading">${state.query.trim() ? 'Matching properties' : 'Ranked opportunities'} <span>${fmt(viable)} ${state.query.trim() ? viable === 1 ? 'match' : 'matches' : 'screening candidates'}</span></h3>
+    ${roofCheckNote()}
     <p class="note list-help">Select a property to confirm its identity, inspect assumptions and compare options.</p>
     <div class="chips" role="group" aria-label="Filter">${Object.entries(FILTERS)
       .map(([k, [name]]) => `<button class="chip" data-filter="${k}" aria-pressed="${k === state.findFilter}">${name}</button>`).join('')}</div>
@@ -696,7 +749,7 @@ function siteCard(s) {
   return `
     <button class="x" data-act="close" aria-label="Close">×</button>
     <div class="sub">${esc(s.categoryLabel)} · ${esc(TOWNSHIPS[state.township].name)}</div>
-    ${fitBadge(s)}${scan ? `<span class="badge info">${scan.reviewed ? 'Scan reviewed' : 'Scan available'}</span>` : ''}${s.affordable ? '<span class="badge info">Affordable housing</span>' : ''}${s.gridDistM != null && s.gridDistM > a.gridMaxM ? '<span class="badge weak" title="OSM substation coverage is incomplete">Substation not mapped nearby</span>' : ''}
+    ${fitBadge(s)}${s.roofCheck ? `<span class="badge ${s.roofCheck.status === "unclear" ? "review" : "info"}" title="${esc(s.roofCheck.source)}">${s.roofCheck.status === "unclear" ? "Check imagery: " : "Imagery check: "}${esc(s.roofCheck.note)}</span>` : ""}${scan ? `<span class="badge info">${scan.reviewed ? 'Scan reviewed' : 'Scan available'}</span>` : ''}${s.affordable ? '<span class="badge info">Affordable housing</span>' : ''}${s.gridDistM != null && s.gridDistM > a.gridMaxM ? '<span class="badge weak" title="OSM substation coverage is incomplete">Substation not mapped nearby</span>' : ''}
     <div class="actions card-start"><button class="btn primary" data-act="add-scan">Inspect roof &amp; plan panels</button></div>
     <div class="big4">
       <div><b>${power(s.kwp)}</b><span>system size · ${fmt(panels)} panels</span></div>
@@ -796,7 +849,7 @@ function layoutPreview(s, layout) {
   const points = (polygon) => polygon.map(([px, py]) => `${px},${-py}`).join(' ');
   return `<section class="layout-preview" aria-label="Draft solar panel layout"><h4>${layout.count} panels · ${fmt(layout.kwp, 1)} kWp</h4>
     <svg id="layout-drawing" viewBox="${x - 2} ${y - 2} ${width + 4} ${height + 4}" role="img" aria-label="Proposed panels inside the mapped roof footprint"><polygon points="${points(ring)}" fill="#eaf1ef" stroke="#68847c" stroke-width=".25" />${layout.panels.map((panel) => `<polygon points="${points(panel)}" fill="#18305b" stroke="#b0dbff" stroke-width=".08" />`).join('')}${(s.evidence?.exclusions || []).map(polygon => `<polygon points="${points(polygon)}" fill="#d34848" fill-opacity=".6" stroke="#932a2a" stroke-width=".3" />`).join('')}</svg>
-    <p class="note">Draft based on the mapped footprint. ${layout.count ? 'Check roof planes, scale, obstacles and access before accepting this layout.' : 'No panels fit within the current boundary, setback and capacity assumptions.'}</p>
+    <p class="note">${layout.meanSun != null ? `<b>Placed where the sun falls:</b> panels get ${fmt(layout.meanSun * 100)}% of full-year direct sun on average (3D raycast against neighbouring buildings); shaded spots are skipped and business roofs keep walkways and a 1.2 m edge strip. ` : "Draft based on the mapped footprint. "}${layout.count ? 'Check roof planes, scale, obstacles and access before accepting this layout.' : 'No panels fit within the current boundary, setback and capacity assumptions.'}</p>
     <button class="btn" type="button" data-act="mark-obstacle" aria-pressed="false">Mark blocked area</button>
     ${(s.evidence?.exclusions || []).length ? '<button class="btn" type="button" data-act="undo-obstacle">Undo last blocked area</button>' : ''}
     <p class="note" id="obstacle-help" role="status">Mark equipment or keep-clear areas yourself. Panels and estimates will update; this does not automatically detect obstacles.</p>
@@ -873,12 +926,26 @@ function bindObstacleDrawing() {
 function scanPayload(s) {
   const [cx, cy] = s.centroid;
   return {
-    id: s.id, name: label(s), category: s.categoryLabel,
+    id: s.id, name: label(s), category: s.categoryLabel, categoryKey: s.category,
     footprint: s.xy.map(([x, y]) => [x - cx, y - cy]),
     height: s.height, heightSource: s.heightSource, area: s.area, usable: s.usable,
     kwp: s.kwp, panels: Math.floor((s.kwp * 1000) / state.assumptions.panelWatt),
     flags: s.flags, scan: state.scans[s.id], layout: state.layouts[s.id] || state.scans[s.id]?.layout, exclusions: s.evidence?.exclusions || []
   };
+}
+// Panel layout for a site, scored by sun exposure against the neighbouring
+// buildings (same raycast as the roof shading), cached on a 1.5 m grid.
+function layoutForSite(s) {
+  const idx = state.sites.indexOf(s);
+  const [cx, cy] = s.centroid;
+  const z = s.height + 0.3;
+  const memo = new Map();
+  const score = state.exposure ? (x, y) => {
+    const k = `${Math.round(x / 1.5)}:${Math.round(y / 1.5)}`;
+    if (!memo.has(k)) memo.set(k, state.exposure(cx + x, cy + y, z, idx));
+    return memo.get(k);
+  } : null;
+  return panelLayoutForSite(scanPayload(s), state.assumptions.panelWatt, score ? { score } : {});
 }
 let scanSite = null;
 function openScan(s) {
@@ -919,7 +986,7 @@ async function watchDroneJob(siteId) {
         const file = await downloadDroneScan(job.id);
         await validateSplat(file);
         const s = state.sites.find((site) => site.id === siteId);
-        const layout = s ? panelLayoutForSite(scanPayload(s), state.assumptions.panelWatt) : pending.siteMetrics ? panelLayoutForSite(pending.siteMetrics) : undefined;
+        const layout = s ? layoutForSite(s) : pending.siteMetrics ? panelLayoutForSite(pending.siteMetrics) : undefined;
         await saveLocalScan({ id: siteId, file, filename: file.name, format: 'ply', title: s ? label(s) : 'Drone scan',
           source: pending.source || 'Drone footage · Nerfstudio', captured: pending.captured || '',
           cameraUp: job.cameraUp || [0, 0, 1], overlay: { position: [0, 0, 0], rotation: [90, 0, 0], scale: 1 },
@@ -1029,7 +1096,7 @@ function bindCard() {
         return;
       }
       const format = await validateSplat(file);
-      const layout = panelLayoutForSite(scanPayload(site), state.assumptions.panelWatt);
+      const layout = layoutForSite(site);
       await saveLocalScan({ id: site.id, file, filename: file.name, format, title: label(site),
         captured: form.elements.captured.value, source: form.elements.source.value.trim(), reviewed: false,
         cameraUp: [0, 1, 0], layout, siteMetrics: { ...scanPayload(site), scan: undefined } });
@@ -1070,7 +1137,7 @@ function bindCard() {
       if (act === 'scan') return openScan(state.selected);
       if (act === 'layout') {
         const s = state.selected;
-        const layout = panelLayoutForSite(scanPayload(s), state.assumptions.panelWatt);
+        const layout = layoutForSite(s);
         const next = { ...state.siteEvidence, [s.id]: { ...s.evidence, layoutPlanned: true } };
         try { persistEvidence(next); state.siteEvidence = next; }
         catch (err) { $('scan-status').textContent = err.message; return; }
@@ -1168,7 +1235,7 @@ function renderLegend() {
     html = state.colorBy === 'sun'
       ? `<b>Sun exposure</b><div class="bar" style="background:linear-gradient(90deg,${[0, 0.5, 1].map((t) => rgb(SUN_RAMP(t))).join(',')})"></div><div class="ends"><span>Shaded</span><span>Full sun</span></div>`
       : `<b>Solar opportunity</b><div class="bar" style="background:linear-gradient(90deg,${RAMP.map(rgb).join(',')})"></div><div class="ends"><span>Weaker roof</span><span>Best roof</span></div>`;
-    html += sw(RAMP[3], 'Highlighted rooftop') + sw(CARPARK, 'Car park (solar canopy)') + sw(SELECTED, 'Selected site') + sw(TOO_SMALL, 'Too small for solar');
+    html += sw(RAMP[3], 'Highlighted rooftop') + sw(CARPARK, 'Car park (solar canopy)') + sw(SELECTED, 'Selected site') + sw(HAS_SOLAR, 'Already has solar (checked)') + sw(TOO_SMALL, 'Too small or not buildable');
   } else if (state.tab === 'share') {
     html = '<b>Proposed solar groups</b>' + sw(ZONE, 'Home roofs in a proposed zone') + sw(BUYER, 'Potential buyer (selected zone)') + sw(SELECTED, 'Selected roof') + sw(NEUTRAL, 'Other buildings');
   } else {
@@ -1375,14 +1442,14 @@ function recompute() {
   let layoutChanged = false;
   for (const s of state.sites) {
     if (state.layouts[s.id] || state.scans[s.id]?.layout || s.evidence.layoutPlanned || s.evidence.exclusions?.length) {
-      const layout = panelLayoutForSite(scanPayload(s), state.assumptions.panelWatt);
+      const layout = layoutForSite(s);
       state.layouts[s.id] = layout;
       s.layoutKwCap = layout.kwp;
       layoutChanged = true;
     }
   }
   if (layoutChanged) scoreSites(state.sites, state.assumptions, state.yieldData);
-  state.ranked = state.sites.filter((s) => !s.flags.includes('Too small')).sort((a, b) => b.score - a.score);
+  state.ranked = state.sites.filter((s) => !s.excluded).sort((a, b) => b.score - a.score);
   state.cream = planCream(state.sites, state.assumptions);
   for (const c of state.cream.clusters) c.hull = convexHull(c.homes.flatMap((h) => h.polygon));
   state.zoneOf = new Map(state.cream.clusters.flatMap((c) => c.homes.map((h) => [h, c])));
@@ -1452,6 +1519,7 @@ async function loadTownship(id, live = false) {
   const { sites, origin } = buildSites(state.raw);
   state.sites = sites;
   state.origin = origin;
+  state.exposure = makeExposure(origin[1], origin[0], sites.map((x) => ({ xy: x.xy, bbox: x.bbox, height: x.height })));
   recompute();
   map.flyTo({ center: [t.view.longitude, t.view.latitude], zoom: t.view.zoom, pitch: t.view.pitch, bearing: t.view.bearing, duration: 1200 });
   runShading();

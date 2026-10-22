@@ -86,3 +86,45 @@ export function computeShading(lat, lon, items, onProgress = () => {}) {
   });
   return result;
 }
+
+// Sun exposure at individual roof points, for placing panels where the sun
+// actually falls. Same rays and weights as computeShading, but for any point:
+// returns (x, y, z, selfIndex) => unshaded share of the year's direct sun (0-1).
+export function makeExposure(lat, lon, items) {
+  const grid = new Map();
+  const key = (i, j) => i * 100003 + j;
+  items.forEach((it, idx) => {
+    const [x0, y0, x1, y1] = it.bbox;
+    for (let i = Math.floor(x0 / CELL); i <= Math.floor(x1 / CELL); i++)
+      for (let j = Math.floor(y0 / CELL); j <= Math.floor(y1 / CELL); j++) {
+        const k = key(i, j);
+        if (!grid.has(k)) grid.set(k, []);
+        grid.get(k).push(idx);
+      }
+  });
+  const maxH = items.reduce((m, it) => Math.max(m, it.height), 0);
+  const suns = sunSamples(lat, lon);
+  const totalW = suns.reduce((s, p) => s + p.w, 0);
+  return (px, py, z0, self = -1) => {
+    let lit = 0;
+    for (const s of suns) {
+      const reach = Math.min(MAX_DIST, (maxH - z0) / s.tanAlt);
+      let blocked = false;
+      for (let d = STEP; d <= reach && !blocked; d += STEP) {
+        const x = px + s.dx * d, y = py + s.dy * d, z = z0 + d * s.tanAlt;
+        const cell = grid.get(key(Math.floor(x / CELL), Math.floor(y / CELL)));
+        if (!cell) continue;
+        for (const o of cell) {
+          if (o === self) continue;
+          const ob = items[o];
+          if (ob.height <= z) continue;
+          const [bx0, by0, bx1, by1] = ob.bbox;
+          if (x < bx0 || x > bx1 || y < by0 || y > by1) continue;
+          if (pointInPolygon(x, y, ob.xy)) { blocked = true; break; }
+        }
+      }
+      if (!blocked) lit += s.w;
+    }
+    return totalW ? lit / totalW : 1;
+  };
+}
