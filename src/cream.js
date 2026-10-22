@@ -2,7 +2,7 @@
 // Preliminary geographic screening, not approved CREAM plants or feeder zones.
 // Actual eligibility needs confirmed connecting substations, feeders and titles.
 import { distanceM } from './geo.js';
-import { DAYTIME_SHARE } from './solar.js';
+import { DAYTIME_SHARE, tariffFor } from './solar.js';
 
 const CELL_DEG = 0.005; // ~550 m clustering grid
 const BUYER_CATEGORIES = new Set(['retail', 'commercial', 'industrial', 'institutional', 'apartments']);
@@ -56,8 +56,8 @@ export function planCream(sites, a) {
       if (take <= 0) continue;
       remaining.set(b, remaining.get(b) - take);
       need -= take;
-      const tariff = b.site.category === 'industrial' ? a.tariffIndustrial : b.site.category === 'apartments' ? a.tariffResidential : a.tariffCommercial;
-      c.buyers.push({ site: b.site, kwh: take, dist, price: tariff * (1 - a.creamDiscount) });
+      // Each buyer pays its own grid tariff less the discount.
+      c.buyers.push({ site: b.site, kwh: take, dist, price: tariffFor(b.site.category, a) * (1 - a.creamDiscount) });
     }
     c.matchedKwh = c.kwh - need;
     c.unmatchedKwh = need;
@@ -66,8 +66,9 @@ export function planCream(sites, a) {
     c.revenue = c.buyers.reduce((sum, b) => sum + b.kwh * b.price, 0);
     c.accessCost = c.matchedKwh * a.accessCharge;
     c.leaseCost = c.homeCount * a.leasePerRoof;
-    c.net = c.revenue - c.accessCost - c.leaseCost;
-    c.capex = c.kwp * a.capexSmall;
+    c.capex = c.kwp * a.creamCapexPerKwp; // bulk installation across the zone
+    c.om = c.capex * a.omPctCapex;
+    c.net = c.revenue - c.accessCost - c.leaseCost - c.om;
     c.payback = c.net > 0 ? c.capex / c.net : Infinity;
     c.co2 = (c.kwh * a.emissionFactor) / 1000;
     c.checks = ['Grid connections and 5 km substation rule unverified', 'Ownership and landed-house eligibility unverified'];
@@ -84,6 +85,13 @@ export function planCream(sites, a) {
     .filter((s) => s.affordable && !s.flags.includes('Too small'))
     .map((s) => ({ site: s, kwp: s.kwp, kwh: s.kwh, leaseIncome: s.kwp * leasePerKwp }))
     .sort((x, y) => y.leaseIncome - x.leaseIncome);
+
+  // Installed price per kWp at which the zone would pay back in `years`:
+  // capex = years x (yearly net before O&M - O&M), with O&M a share of capex.
+  for (const c of clusters) {
+    const gross = c.net + c.om;
+    c.targetPerKwp = c.kwp > 0 ? (10 * gross) / (1 + 10 * a.omPctCapex) / c.kwp : 0;
+  }
 
   const sum = (k) => clusters.reduce((t, c) => t + c[k], 0);
   return {

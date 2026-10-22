@@ -13,6 +13,9 @@ const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 const siteId = params.get('site');
 const isSample = params.has('sample');
+const BASE = import.meta.env.BASE_URL;
+// Registry URLs may be relative to the app ("splats/x.ksplat"), root-relative or absolute.
+const resolveUrl = (u) => (/^https?:/.test(u) ? u : new URL(u.replace(/^\//, ''), new URL(BASE, location.href)).href);
 const fmt = (v, d = 0) => (Number.isFinite(v) ? v.toLocaleString('en-MY', { maximumFractionDigits: d, minimumFractionDigits: d }) : '—');
 const DEG = Math.PI / 180;
 
@@ -178,7 +181,7 @@ function scanEntry() {
   const captured = $('f-captured').value;
   const source = $('f-source').value.trim();
   const entry = {
-    url: scan?.url || `/splats/${(site?.id || siteId || 'site').replace('/', '-')}.${scan?.format || 'ksplat'}`,
+    url: scan?.url || `splats/${(site?.id || siteId || 'site').replace('/', '-')}.${scan?.format || 'ksplat'}`,
     title: site?.name || scan?.title || '',
     captured: captured || undefined,
     source: source || undefined,
@@ -247,7 +250,7 @@ $('fitScan').onclick = () => { if (scanLoaded) fitScan(); };
 
 // ---------- splat ----------
 async function loadSplat() {
-  const reg = await fetch('/splats/scans.json').then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
+  const reg = await fetch(`${BASE}splats/scans.json`).then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
   let local = null;
   if (!isSample && siteId) {
     try { local = await getLocalScan(siteId); }
@@ -279,7 +282,7 @@ async function loadSplat() {
     initialCameraLookAt: scan.camera?.lookAt || [0, 0, 0],
     sharedMemoryForWorkers: false // no COOP/COEP headers needed
     });
-    const path = scan.file ? (objectUrl = URL.createObjectURL(scan.file)) : scan.url;
+    const path = scan.file ? (objectUrl = URL.createObjectURL(scan.file)) : resolveUrl(scan.url);
     const formats = { ply: GaussianSplats3D.SceneFormat.Ply, splat: GaussianSplats3D.SceneFormat.Splat, ksplat: GaussianSplats3D.SceneFormat.KSplat };
     await viewer.addSplatScene(path, {
       ...(scan.format ? { format: formats[scan.format] } : {}),
@@ -301,6 +304,8 @@ async function loadSplat() {
 }
 
 // The parent app posts the site's footprint and estimates after the frame loads.
+// Inside the app: ask the parent for the site and wait for its reply.
+// Opened on its own: load straight from the URL.
 let started = false;
 window.addEventListener('message', (e) => {
   if (e.origin !== location.origin || e.source !== window.parent || e.data?.type !== 'site' || started) return;
@@ -313,7 +318,11 @@ function showLoadError(err) {
   $('progress').textContent = `The scan could not be opened. ${err.message}`;
 }
 if (window.parent === window || isSample) { started = true; loadSplat().catch(showLoadError); }
-else window.parent.postMessage({ type: 'scan-ready' }, location.origin);
+else {
+  window.parent.postMessage({ type: 'scan-ready' }, location.origin);
+  // Parent never answered (e.g. opened in its own tab): load from the URL alone.
+  setTimeout(() => { if (!started) { started = true; loadSplat().catch(showLoadError); } }, 3000);
+}
 window.addEventListener('pagehide', () => {
   if (objectUrl) URL.revokeObjectURL(objectUrl);
   viewer?.dispose();

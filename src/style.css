@@ -281,6 +281,15 @@ input[type='range']::-moz-range-thumb {
   .options { grid-template-columns: 1fr; }
   .metric.funnel .steps { display: none; }
 }
+/* House options: three full-width rows read better than three 100 px columns. */
+.options { grid-template-columns: 1fr; }
+.opt { display: grid; grid-template-columns: 118px 1fr; column-gap: 10px; align-items: start; }
+.opt h4 { grid-column: 1 / -1; }
+.opt b, .opt > span { grid-column: 1; }
+.opt ul { grid-column: 2; grid-row: 2 / span 2; margin: 0; }
+/* Contrast: white on gold failed WCAG (about 2.2:1); dark text on gold passes. */
+.btn.primary, #tour .btn.primary { color: var(--text); }
+#tabs button[aria-selected='true'] span { color: var(--text); }
 
 /* Starting guidance and the local drone-scan workflow. */
 .start-guide { padding-bottom: 18px; margin-bottom: 18px; border-bottom: 1px solid var(--line); }

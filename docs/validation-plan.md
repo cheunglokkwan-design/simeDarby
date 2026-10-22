@@ -54,9 +54,9 @@ warehouses, malls, homes and roof shapes before claiming broad accuracy.
    flat plane, even when a splat is available.
 3. Match synchronized PV and load time series, and compare complete before/after
    electricity bills. Cached battery values do not fully cost grid-charge losses.
-4. Add operating/replacement costs and sensitivity analysis for investment
-   comparisons. Current solar payback is simple CAPEX divided by estimated annual
-   benefit.
+4. Validate maintenance assumptions, add replacement costs and sensitivity
+   analysis for investment comparisons. Current solar payback is simple CAPEX
+   divided by estimated annual benefit after assumed annual maintenance.
 5. Before multi-user rollout, add identity, ownership/access controls, shared
    evidence storage, audit history and per-user compute budgets.
 

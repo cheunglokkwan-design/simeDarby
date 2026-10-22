@@ -34,6 +34,8 @@ export default defineConfig(({ mode }) => {
   };
   return {
   root,
+  // Hosting under a sub-path (e.g. GitHub Pages at /simeDarby/): BASE=/simeDarby/ npm run build
+  base: process.env.BASE ?? '/',
   server: { proxy }, preview: { proxy },
   plugins: configured ? [] : [{ name: 'drone-worker-status', configureServer: unavailable, configurePreviewServer: unavailable }],
   build: {
