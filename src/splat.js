@@ -268,7 +268,7 @@ async function loadSplat() {
   if (!scan?.url && !scan?.file) {
     const e = $('empty');
     e.hidden = false;
-    e.innerHTML = `<div><b>No drone scan for this roof yet</b>Close this viewer and choose Add drone scan on the building's card to import a finished Gaussian splat.</div>`;
+    e.innerHTML = `<div><b>No drone scan for this roof yet</b>Close this viewer and open Roof &amp; panels on the property to import a finished Gaussian splat.</div>`;
     return;
   }
   const progress = $('progress');

@@ -15,7 +15,15 @@ brief, the ranked shortlist exports to CSV, GeoJSON or KML, and every roof's est
 as an open dataset. All figures are early estimates for screening sites, not survey-grade results,
 and the tariffs and costs are editable placeholders.
 
-## Three features, one map
+## One lead story: solar-ready homes
+
+The app and demo tour open on the homeowner's monthly outcome: modelled bill
+reduction minus an illustrative fully financed solar payment and assumed upkeep.
+The example is a median-size mapped single home, not a verified SDP property or
+customer offer. Business roofs, CREAM leasing and batteries support the main story.
+No field accuracy, validated customer saving or successful hosted GPU run is claimed.
+
+## Supporting analysis
 
 | Tab | Question it answers |
 |---|---|
@@ -23,7 +31,7 @@ and the tariffs and costs are editable placeholders.
 | **2. Community solar** | Which proposed groups of home roofs could share power with nearby buyers, and what does each household get? |
 | **3. Store energy** | Where does a battery make the most sense, and how long does it take to pay back? |
 
-The impact bar stays visible across all three and gives the honest number: MWp on all viable roofs →
+The expandable capacity summary separates modelled MWp on all viable mapped roofs →
 MWp with no mapped heritage or strata flags → MWp that pays back within 7 years, with the energy, CO₂ and savings
 of that last set. Click any site for a card with four headline numbers and expandable detail; **▶ Tour**
 walks through the story for the demo video.
@@ -64,7 +72,9 @@ npm run dev
 
 Open http://localhost:5173.
 
-Select a building and choose **Inspect roof & plan panels**. Draft
+Select a building to open its three-step workspace: **Potential → Roof & panels
+→ Brief**. Generate a mapped-roof draft, mark blocked areas, or add a 3D scan;
+then open the printable site brief. Draft
 panel layouts and finished-splat imports work locally. Video reconstruction uses
 the included [remote GPU worker](docs/drone-worker.md), which needs hosting and
 server-side connection settings before footage can be processed. Draft layouts
