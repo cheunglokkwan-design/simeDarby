@@ -15,21 +15,30 @@ brief, the ranked shortlist exports to CSV, GeoJSON or KML, and every roof's est
 as an open dataset. All figures are early estimates for screening sites, not survey-grade results,
 and the tariffs and costs are editable placeholders.
 
-## One lead story: solar-ready homes
+## One lead story: choose which sites to study first
 
-The app and demo tour open on the homeowner's monthly outcome: modelled bill
-reduction minus an illustrative fully financed solar payment and assumed upkeep.
-The example is a median-size mapped single home, not a verified SDP property or
-customer offer. Business roofs, CREAM leasing and batteries support the main story.
-No field accuracy, validated customer saving or successful hosted GPU run is claimed.
+For SDP development and sustainability teams, the app ranks mapped rooftops and
+car parks for detailed solar feasibility studies. The opening screen and tour
+follow the same journey: **rank sites → explain the recommendation → review
+missing evidence → export a study shortlist**. This follows the supplied PLANET
+brief's "Choosing the right sites for solar" problem.
+
+Priority scores are heuristic, not validated engineering suitability or measured
+accuracy. Users can select candidates, persist a separate shortlist per township,
+and export CSV, geographic outlines, a JSON evidence/assumptions bundle and an
+expert review template. Expert assessment fields start blank; no comparison
+results, field accuracy or successful hosted GPU run are claimed.
+
+Home finance, CREAM and batteries remain under **Other scenarios**. Drone scans
+and panel layouts are optional aids within the evidence review.
 
 ## Supporting analysis
 
 | Tab | Question it answers |
 |---|---|
-| **1. Find roofs** | Which roofs and car parks should get solar, and what do they save? |
-| **2. Community solar** | Which proposed groups of home roofs could share power with nearby buyers, and what does each household get? |
-| **3. Store energy** | Where does a battery make the most sense, and how long does it take to pay back? |
+| **Prioritise sites** | Which rooftops and car parks should receive detailed feasibility studies first? |
+| **Other scenarios → Homes & CREAM** | What could home finance or proposed shared-power groups look like? |
+| **Other scenarios → Battery scenarios** | Where could storage be worth further assessment? |
 
 The expandable capacity summary separates modelled MWp on all viable mapped roofs →
 MWp with no mapped heritage or strata flags → MWp that pays back within 7 years, with the energy, CO₂ and savings
@@ -72,9 +81,9 @@ npm run dev
 
 Open http://localhost:5173.
 
-Select a building to open its three-step workspace: **Potential → Roof & panels
-→ Brief**. Generate a mapped-roof draft, mark blocked areas, or add a 3D scan;
-then open the printable site brief. Draft
+Select a site to open **Priority → Evidence → Handover**. Review the missing
+checks, add it to the study shortlist and export for expert assessment. Optional
+roof review supports a mapped draft, blocked areas and 3D scans. Draft
 panel layouts and finished-splat imports work locally. Video reconstruction uses
 the included [remote GPU worker](docs/drone-worker.md), which needs hosting and
 server-side connection settings before footage can be processed. Draft layouts

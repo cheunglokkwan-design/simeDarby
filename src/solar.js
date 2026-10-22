@@ -176,6 +176,21 @@ export function atapCapKw(s, demand, a) {
   return Math.min(a.atapCapKw, peakKw);
 }
 
+export function priorityBreakdown({ kwh, selfUse, payback, shading = 1, flags = [] }) {
+  const generation = clamp01((Math.log10(Math.max(kwh, 1)) - 3) / 4);
+  const selfRatio = kwh > 0 ? selfUse / kwh : 0;
+  const pay = clamp01((14 - payback) / 10);
+  const scored = flags.filter(flag => flag !== GRID_FLAG);
+  const multiplier = scored.includes('Too small') ? 0.3 : scored.length ? 0.8 : 1;
+  const parts = [
+    { label: 'Annual generation', points: 40 * generation, maximum: 40 },
+    { label: 'Share used on site', points: 25 * selfRatio, maximum: 25 },
+    { label: 'Modelled payback', points: 20 * pay, maximum: 20 },
+    { label: 'Modelled sun exposure', points: 15 * shading, maximum: 15 }
+  ];
+  return { parts, multiplier, selfRatio, score: 100 * (0.4 * generation + 0.25 * selfRatio + 0.2 * pay + 0.15 * shading) * multiplier };
+}
+
 export function scoreSites(sites, a, yieldData = null) {
   const lifeYears = yieldData?.model.lifetimeYears ?? 25;
   const lifeFactor = yieldData?.lifetimeFactor ?? 0.94; // 0.5 %/yr degradation
@@ -187,7 +202,7 @@ export function scoreSites(sites, a, yieldData = null) {
     // Homes: real household use, not floor area. Others: floor-area demand proxy.
     const occupiedStoreys = evidence.occupiedStoreys ?? Math.max(1, s.levels);
     const demand = evidence.annualKwh ?? (homes ? homes * a.homeKwhMonth * 12 : s.area * occupiedStoreys * DEMAND_INTENSITY[s.category]);
-    const demandSource = evidence.annualKwh ? 'User-entered electricity use; source not independently verified' : 'Category-based demand estimate';
+    const demandSource = evidence.annualKwh ? 'User-entered electricity use; source not independently verified' : s.category === 'carpark' || s.category === 'canopy' ? 'No host load linked; demand not established' : 'Category-based demand estimate';
     const y = siteYield(s, yieldData, a);
     const uncappedKwp = usable * a.panelDensity;
     // Homes are sized to cover their own yearly use, within ATAP's 15 kW per home.
@@ -223,13 +238,7 @@ export function scoreSites(sites, a, yieldData = null) {
     // substation is often a data gap rather than a real grid constraint.
     if (s.gridDistM != null && s.gridDistM > a.gridMaxM) flags.push(GRID_FLAG);
 
-    const genScore = clamp01((Math.log10(Math.max(kwh, 1)) - 3) / 4); // 1 MWh/yr -> 0, 10 GWh/yr -> 1
-    const selfScore = kwh > 0 ? selfUse / kwh : 0;
-    const payScore = clamp01((14 - payback) / 10);
-    const scored = flags.filter((f) => f !== GRID_FLAG);
-    const score =
-      100 * (0.4 * genScore + 0.25 * selfScore + 0.2 * payScore + 0.15 * shading) *
-      (scored.includes('Too small') ? 0.3 : scored.length ? 0.8 : 1);
+    const { score, selfRatio: selfScore } = priorityBreakdown({ kwh, selfUse, payback, shading, flags });
 
     Object.assign(s, {
       usable, homes, roofKwp, roofKwh, kwp, kwh, demand, selfUse, exported, capex, om, savings, payback, co2,

@@ -17,18 +17,20 @@
       </div>
       <select id="township" aria-label="Township"></select>
       <nav id="tabs" role="tablist" aria-label="Features">
-        <button role="tab" data-tab="share">Solar homes</button>
-        <button role="tab" data-tab="find">Business roofs</button>
-        <button role="tab" data-tab="store">Batteries</button>
+        <button role="tab" data-tab="find">Prioritise sites</button>
       </nav>
+      <details id="analysis-menu"><summary>Other scenarios</summary><div class="dropdown"><button data-secondary-tab="share">Homes &amp; CREAM</button><button data-secondary-tab="store">Battery scenarios</button></div></details>
       <div class="tools">
         <button id="tourBtn" class="btn">Demo tour</button>
         <div class="menu">
           <button id="exportBtn" class="btn" aria-haspopup="true" aria-expanded="false" aria-label="Export"><span class="hide-sm">Export </span>⤓</button>
           <div id="exportMenu" class="dropdown" hidden>
-            <button data-export="csv">Ranked list (CSV)</button>
-            <button data-export="geojson">Map outlines (GeoJSON, for QGIS)</button>
-            <button data-export="kml">3D outlines (KML, for Google Earth)</button>
+            <button data-export="csv">Study shortlist (CSV)</button>
+            <button data-export="review">Expert review template (CSV)</button>
+            <button data-export="bundle">Evidence &amp; assumptions (JSON)</button>
+            <button data-export="geojson">Shortlist outlines (GeoJSON)</button>
+            <button data-export="kml">Shortlist 3D outlines (KML)</button>
+            <button data-export="ranked">All ranked candidates (CSV)</button>
             <button data-export="supabase" hidden>Save shortlist to Supabase</button>
           </div>
         </div>
