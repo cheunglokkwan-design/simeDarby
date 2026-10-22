@@ -9,6 +9,11 @@ function crosses(a, b, c, d) {
   const side = (p, q, r) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
   return side(a, b, c) * side(a, b, d) < -1e-9 && side(c, d, a) * side(c, d, b) < -1e-9;
 }
+function overlaps(a, b) {
+  const ac = [...a, a[0]], bc = [...b, b[0]];
+  if (a.some(p => inside(p, bc)) || b.some(p => inside(p, ac))) return true;
+  return a.some((p, i) => b.some((q, j) => crosses(p, a[(i + 1) % a.length], q, b[(j + 1) % b.length])));
+}
 function fits(quad, roof) {
   if (!quad.every((point) => inside(point, roof))) return false;
   for (let i = 0; i < roof.length - 1; i++) {
@@ -21,7 +26,7 @@ function fits(quad, roof) {
 }
 
 export function generatePanelLayout(footprint, options = {}) {
-  const { width = 1.134, length = 2.278, gap = .12, setback = .6, watt = 550, maxPanels = 4000 } = options;
+  const { width = 1.134, length = 2.278, gap = .12, setback = .6, watt = 550, maxPanels = 4000, exclusions = [] } = options;
   if (![width, length, watt].every((v) => Number.isFinite(v) && v > 0) ||
       ![gap, setback, maxPanels].every((v) => Number.isFinite(v) && v >= 0)) throw new Error('Invalid panel-layout dimensions.');
   const empty = { panels: [], count: 0, kwp: 0, width, length, gap, setback, watt, basis: 'mapped-footprint', reviewRequired: true };
@@ -41,6 +46,7 @@ export function generatePanelLayout(footprint, options = {}) {
     const rotate = ([x, y]) => [x * c + y * s, -x * s + y * c];
     const restore = ([x, y]) => [x * c - y * s, x * s + y * c];
     const roof = ring.map(rotate);
+    const blocked = exclusions.map((polygon) => polygon.map(rotate));
     const xs = roof.map(p => p[0]), ys = roof.map(p => p[1]);
     const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
     const columns = Math.floor((maxX - minX - 2 * setback + gap) / (width + gap));
@@ -54,14 +60,14 @@ export function generatePanelLayout(footprint, options = {}) {
         const x = minX + offsetX + column * (width + gap), y = minY + offsetY + row * (length + gap);
         const clearance = [[x - setback, y - setback], [x + width + setback, y - setback],
           [x + width + setback, y + length + setback], [x - setback, y + length + setback]];
-        if (fits(clearance, roof)) panels.push([[x, y], [x + width, y], [x + width, y + length], [x, y + length]].map(restore));
+        if (fits(clearance, roof) && !blocked.some(polygon => overlaps(clearance, polygon))) panels.push([[x, y], [x + width, y], [x + width, y + length], [x, y + length]].map(restore));
       }
     }
     if (panels.length > best.length) best = panels;
   }
-  return { ...empty, panels: best, count: best.length, kwp: best.length * watt / 1000 };
+  return { ...empty, panels: best, count: best.length, kwp: best.length * watt / 1000, exclusions };
 }
 
 export function panelLayoutForSite(site, watt = 550) {
-  return generatePanelLayout(site.footprint, { watt, maxPanels: site.panels || Math.floor((site.kwp || 0) * 1000 / watt) });
+  return generatePanelLayout(site.footprint, { watt, maxPanels: site.panels ?? Math.floor((site.kwp || 0) * 1000 / watt), exclusions: site.exclusions || [] });
 }

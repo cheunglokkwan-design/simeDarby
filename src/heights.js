@@ -66,11 +66,14 @@ const num = (v) => {
 
 export function estimateHeight(tags, category, areaM2) {
   const h = num(tags.height);
-  if (h) return { height: h, levels: Math.max(1, Math.round(h / STOREY_HEIGHT_M)), heightSource: 'OSM height tag' };
   const lv = num(tags['building:levels']);
-  if (lv) return { height: lv * STOREY_HEIGHT_M + 1, levels: Math.round(lv), heightSource: 'OSM levels tag' };
+  // Occupied floors determine load; visual roof height must never invent floors.
+  const floors = { levels: lv ? Math.max(1, Math.round(lv)) : 1,
+    levelsSource: lv ? 'OSM building:levels tag' : 'One occupied storey assumed; floor count unknown' };
+  if (h) return { height: h, ...floors, heightSource: 'OSM height tag' };
+  if (lv) return { height: lv * STOREY_HEIGHT_M + 1, ...floors, heightSource: 'OSM levels tag' };
   let height = DEFAULT_HEIGHT[category] ?? DEFAULT_HEIGHT.unknown;
   // Big-box industrial/retail sheds get a little taller with size.
   if ((category === 'industrial' || category === 'retail') && areaM2 > 8000) height += 3;
-  return { height, levels: Math.max(1, Math.round(height / STOREY_HEIGHT_M)), heightSource: 'Estimated from building type' };
+  return { height, ...floors, heightSource: 'Estimated from building type' };
 }

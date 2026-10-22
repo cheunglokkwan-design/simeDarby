@@ -39,6 +39,7 @@
 
     <aside id="panel" aria-live="polite"></aside>
     <aside id="card" hidden></aside>
+    <button id="panelToggle" class="btn" aria-expanded="true" aria-controls="panel">Show more map</button>
 
     <div id="legend"></div>
     <div id="basemap" class="seg" role="group" aria-label="Basemap">
@@ -67,12 +68,12 @@
       <button id="sampleScan" class="btn">Open 3D viewer with sample scene</button>
     </aside>
 
-    <div id="modal" hidden>
-      <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <dialog id="modal" aria-labelledby="modalTitle" hidden>
+      <div class="modal-box">
         <header><b id="modalTitle"></b><button class="x" id="modalClose" aria-label="Close">×</button></header>
         <iframe id="modalFrame" title="Detail view"></iframe>
       </div>
-    </div>
+    </dialog>
 
     <div id="tour" hidden></div>
 

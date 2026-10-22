@@ -158,7 +158,7 @@ export const GRID_FLAG = 'Far from mapped substation';
 export function atapCapKw(s, demand, a) {
   if (s.category === 'residential') return a.homeCapKw;
   if (s.category === 'carpark' || s.category === 'canopy') return a.atapCapKw;
-  const peakKw = demand / (8760 * a.loadFactor);
+  const peakKw = s.evidence?.peakKw ?? demand / (8760 * a.loadFactor);
   return Math.min(a.atapCapKw, peakKw);
 }
 
@@ -167,16 +167,20 @@ export function scoreSites(sites, a, yieldData = null) {
   const lifeFactor = yieldData?.lifetimeFactor ?? 0.94; // 0.5 %/yr degradation
   for (const s of sites) {
     const shading = s.shading ?? 1;
-    const usable = s.area * USABLE_FRACTION[s.category];
+    const evidence = s.evidence || {};
+    const usable = Math.min(s.area, evidence.usableM2 ?? s.area * USABLE_FRACTION[s.category]);
     const homes = homesIn(s, a);
     // Homes: real household use, not floor area. Others: floor-area demand proxy.
-    const demand = homes ? homes * a.homeKwhMonth * 12 : s.area * Math.max(1, s.levels) * DEMAND_INTENSITY[s.category];
+    const occupiedStoreys = evidence.occupiedStoreys ?? Math.max(1, s.levels);
+    const demand = evidence.annualKwh ?? (homes ? homes * a.homeKwhMonth * 12 : s.area * occupiedStoreys * DEMAND_INTENSITY[s.category]);
+    const demandSource = evidence.annualKwh ? 'User-entered electricity use; source not independently verified' : 'Category-based demand estimate';
     const y = siteYield(s, yieldData, a);
     const uncappedKwp = usable * a.panelDensity;
     // Homes are sized to cover their own yearly use, within ATAP's 15 kW per home.
     const homeSize = homes ? Math.min(a.homeCapKw * homes, demand / Math.max(1, y.p50 * shading)) : Infinity;
-    const kwp = Math.min(uncappedKwp, atapCapKw(s, demand, a) * (homes || 1), homeSize);
-    const atapCapped = !homes && kwp < uncappedKwp;
+    const policyCap = atapCapKw(s, demand, a) * (homes || 1);
+    const kwp = Math.min(uncappedKwp, policyCap, homeSize, s.layoutKwCap ?? Infinity);
+    const atapCapped = !homes && policyCap < uncappedKwp && Math.abs(kwp - policyCap) < 1e-6;
     const kwh = kwp * y.p50 * shading;
     const kwhP90 = kwp * y.p90 * shading;
     // A CREAM lease uses the whole roof (within ATAP's per-home cap), not just the household's own use.
@@ -215,7 +219,7 @@ export function scoreSites(sites, a, yieldData = null) {
     Object.assign(s, {
       usable, homes, roofKwp, roofKwh, kwp, kwh, demand, selfUse, exported, capex, savings, payback, co2,
       atapCapped, kwhP90, lifetimeKwh, specificYield: y.p50, yieldP90: y.p90, yieldTilt: y.tilt,
-      selfRatio: selfScore, flags, score
+      selfRatio: selfScore, flags, score, occupiedStoreys, demandSource
     });
   }
   return sites;
@@ -240,7 +244,7 @@ export function microGridLinks(sites, community, maxDistM = 1500, perSite = 2) {
   return links;
 }
 
-// The honest headline: all viable roofs -> those needing no special approval
+// Screening headline: viable roofs -> those with no mapped review flags
 // -> those that pay back within the target. Impact figures use the last set.
 const NEEDS_APPROVAL = ['Zoning / heritage review', 'Strata approval needed'];
 export function funnel(sites, a) {

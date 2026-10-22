@@ -28,13 +28,15 @@ export function siteBriefHTML(s, { township, assumptions: a, battery, yieldSourc
     ['Panels', `${n(p.panels)} × ${a.panelWatt} W`],
     ['System size', `${n(s.kwp, 1)} kWp${s.atapCapped ? ' (capped by Solar ATAP: 1 MW or peak demand)' : ''}`],
     ['Sun exposure (3D shading)', `${n((s.shading ?? 1) * 100)} %`],
-    ['Specific yield', `${n(s.specificYield)} kWh/kWp P50 · ${n(s.yieldP90)} P90`],
+    ['Specific yield (weather variability only)', `${n(s.specificYield)} kWh/kWp P50 · ${n(s.yieldP90)} P90`],
     ['Generation, year 1', `${n(s.kwh / 1000, 1)} MWh P50 · ${n(s.kwhP90 / 1000, 1)} MWh P90`],
     ['Generation, 25 years', `${n(s.lifetimeKwh / 1e6, 2)} GWh (0.5 %/yr degradation)`],
     ['Self-consumed on site', `${n(s.selfRatio * 100)} %`],
     ['CAPEX', `RM ${n(s.capex)}`],
     ['Annual savings', `RM ${n(s.savings)} (exports at ATAP SMP ${a.exportSMP} RM/kWh)`],
-    ['Simple payback', `${n(s.payback, 1)} years`],
+    ['Simple payback (before ongoing costs)', `${n(s.payback, 1)} years`],
+    ['Demand basis', `${esc(s.demandSource || 'Category estimate')} · ${n(s.demand)} kWh/yr`],
+    ...(s.evidence?.source ? [['User-provided evidence', esc(s.evidence.source)]] : []),
     ['CO₂ avoided', `${n(s.co2, 1)} t/yr · ${n((s.lifetimeKwh * a.emissionFactor) / 1000, 0)} t over 25 years`],
     ['Nearest mapped substation', s.gridDistM == null ? 'none mapped' : `${n(s.gridDistM)} m`],
     ['Opportunity score', `${n(s.score)} / 100`]
@@ -43,7 +45,7 @@ export function siteBriefHTML(s, { township, assumptions: a, battery, yieldSourc
     ? `<h2>Battery option (NREL PySAM, peak shaving)</h2><table>
         <tr><td>Size</td><td>${n(battery.kw)} kW / ${n(battery.kwh)} kWh (4 h)</td></tr>
         <tr><td>Monthly peak cut</td><td>${n(battery.peakCutKw)} kW of ${n(battery.peakKw)} kW</td></tr>
-        <tr><td>Value</td><td>RM ${n(battery.value)}/yr · payback ${n(battery.payback, 1)} years</td></tr>
+        <tr><td>Indicative gross benefit</td><td>RM ${n(battery.value)}/yr · indicative payback ${n(battery.payback, 1)} years, before full charging-loss and ongoing costs</td></tr>
         <tr><td>Siting checks</td><td>Grid: ${esc(battery.checks.grid)}<br>Flood: ${esc(battery.checks.flood)}<br>Fire: ${esc(battery.checks.fire)}<br>Space: ${esc(battery.checks.space)}</td></tr>
       </table>`
     : '';
@@ -69,7 +71,7 @@ ${quotes ? `<div class="quote"><b>Requesting installer quotes</b><ol>
 <h1>${esc(s.name || s.categoryLabel)}</h1>
 <p class="sub">${esc(township)} · ${lat.toFixed(5)}, ${lon.toFixed(5)} · <a href="https://www.openstreetmap.org/${esc(s.id)}">${esc(s.id)}</a> · ${new Date().toISOString().slice(0, 10)}</p>
 ${s.affordable ? '<div><span class="flag" style="background:#e9f9ef;color:#1d7a42">Affordable housing: CREAM lease-income candidate</span></div>' : ''}
-<div>${s.flags.length ? s.flags.map((f) => `<span class="flag">${esc(f)}${f === GRID_FLAG ? ' (not scored: OSM substation coverage is incomplete)' : ''}</span>`).join('') : '<span class="flag" style="background:#e9f9ef;color:#1d7a42">Passes engineering checks</span>'}</div>
+<div>${s.flags.length ? s.flags.map((f) => `<span class="flag">${esc(f)}${f === GRID_FLAG ? ' (not scored: OSM substation coverage is incomplete)' : ''}</span>`).join('') : '<span class="flag">No mapped review flags; engineering assessment pending</span>'}</div>
 <div class="grid"><div><h2>Pre-feasibility summary</h2><table>${rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('')}</table></div>
 <div><h2>Footprint</h2>${footprintSVG(s)}</div></div>
 ${bat}

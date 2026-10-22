@@ -97,6 +97,12 @@ uses assumed 1.134 × 2.278 m / 550 W modules, leaves 0.12 m module gaps and a 0
 edge setback, and respects the site's modelled panel-count cap. Concave boundaries
 are checked to avoid panels bridging missing sections.
 
+User-marked blocked rectangles are also excluded, and source-backed site inputs
+can replace demand and usable-area assumptions. When the packed panel capacity is
+lower than the initial model, the site's solar economics and ranking are reduced
+to that capacity. These corrections are stored on the same browser origin; they
+do not independently establish survey accuracy or permission to install.
+
 The video reconstruction supplies the visual inspection scene. It does **not**
 currently supply a calibrated roof segmentation, obstacle map or structural model.
 The draft assumes a flat plane at the estimated height and is not an installation

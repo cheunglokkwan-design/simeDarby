@@ -24,7 +24,7 @@ and the tariffs and costs are editable placeholders.
 | **3. Store energy** | Where does a battery make the most sense, and how long does it take to pay back? |
 
 The impact bar stays visible across all three and gives the honest number: MWp on all viable roofs →
-MWp needing no special approval → MWp that pays back within 7 years, with the energy, CO₂ and savings
+MWp with no mapped heritage or strata flags → MWp that pays back within 7 years, with the energy, CO₂ and savings
 of that last set. Click any site for a card with four headline numbers and expandable detail; **▶ Tour**
 walks through the story for the demo video.
 
@@ -65,7 +65,7 @@ npm run dev
 
 Open http://localhost:5173.
 
-Select a building and choose **Create solar layout from drone footage**. Draft
+Select a building and choose **Inspect roof & plan panels**. Draft
 panel layouts and finished-splat imports work locally. Video reconstruction uses
 the included [remote GPU worker](docs/drone-worker.md), which needs hosting and
 server-side connection settings before footage can be processed. Draft layouts
@@ -73,6 +73,16 @@ use the mapped footprint; roof planes and obstacles still require review.
 
 Community-solar boundaries are proposed geographic groups, with ownership and
 feeder checks pending. See the [zoning audit](docs/zoning-audit.md).
+
+Search mapped properties by building name, mapped address or OSM ID. Every result
+can be selected by keyboard, and more results are available below the list.
+**Improve estimate with site evidence** accepts occupied-storey counts, annual
+electricity use, metered peak demand and surveyed usable area. Corrections are
+saved in the browser and recalculate capacity, savings, rankings and draft layouts.
+The layout preview also supports manually marked blocked regions; these remove
+panels and reduce the proposal where needed. This is reviewed mapped geometry,
+not automatic extraction of roof planes from video. See the
+[validation plan](docs/validation-plan.md) for the remaining evidence needed.
 
 - `npm run fetch-osm`: refresh the cached OSM snapshots in `public/data/`
   (the app works offline from these; the "Re-fetch live OSM data" button pulls fresh data in the browser).

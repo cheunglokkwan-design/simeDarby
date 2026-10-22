@@ -40,3 +40,13 @@ test('packing is independent of the rotation of the capture and handles small ro
   assert.equal(generatePanelLayout([[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]).count, 0);
   assert.equal(generatePanelLayout(roof, { maxPanels: 0 }).count, 0);
 });
+
+test('marked obstructions remove panels and can make the roof unusable', () => {
+  const roof = [[0, 0], [20, 0], [20, 15], [0, 15], [0, 0]];
+  const normal = generatePanelLayout(roof);
+  const blocked = generatePanelLayout(roof, { exclusions: [[[0, 0], [10, 0], [10, 15], [0, 15]]] });
+  assert.ok(blocked.count < normal.count);
+  assert.ok(blocked.count > 0);
+  for (const panel of blocked.panels) for (const [x] of panel) assert.ok(x >= 10.6 - 1e-8);
+  assert.equal(generatePanelLayout(roof, { exclusions: [roof.slice(0, -1)] }).count, 0);
+});

@@ -5,7 +5,6 @@
 
 const ARCHETYPE = { retail: 'retail', commercial: 'commercial', institutional: 'commercial', industrial: 'industrial' };
 const MIN_PEAK_KW = 200;
-const NFPA_INDOOR_KWH = 50; // NFPA 855: larger systems in shared buildings need separation / large-scale fire tests
 
 const nearestKey = (obj, v) =>
   Object.keys(obj).reduce((best, k) => (Math.abs(+k - v) < Math.abs(+best - v) ? k : best));
@@ -16,7 +15,7 @@ export function planStorage(sites, a, storageData) {
   for (const s of sites) {
     const kind = ARCHETYPE[s.category];
     if (!kind || s.flags.includes('Too small')) continue;
-    const peakKw = s.demand / (8760 * a.loadFactor);
+    const peakKw = s.evidence?.peakKw ?? s.demand / (8760 * a.loadFactor);
     if (peakKw < MIN_PEAK_KW) continue;
     const surplus = s.atapCapped || s.exported > 0.1 * s.kwh;
     if (!surplus) continue;
@@ -42,8 +41,8 @@ export function planStorage(sites, a, storageData) {
     const checks = {
       grid: s.gridDistM == null ? 'unknown (no substation mapped)' : s.gridDistM <= a.gridMaxM ? `ok (${Math.round(s.gridDistM)} m)` : `far (${Math.round(s.gridDistM)} m)`,
       flood: 'not checked: needs JPS flood-hazard map',
-      fire: best.kwh > NFPA_INDOOR_KWH ? 'outdoor container; NFPA 855 / Bomba review' : 'indoor allowed with 3 ft clearance',
-      space: 'car-park corner or plant area, not panel roof space'
+      fire: 'not assessed: qualified fire-safety review required',
+      space: 'not assessed: survey accessible outdoor or plant space'
     };
     out.push({ site: s, archetype: kind, peakKw, ...best, checks });
   }
