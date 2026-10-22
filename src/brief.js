@@ -63,7 +63,7 @@ export function siteBriefHTML(s, { township, assumptions: a, battery, yieldSourc
 ${quotes ? `<div class="quote"><b>Requesting installer quotes</b><ol>
   <li>Save this brief as a PDF with the button below.</li>
   <li>Send it to two or three installers on SEDA Malaysia's register of PV service providers (<a href="https://www.seda.gov.my" target="_blank" rel="noopener">seda.gov.my</a>). Only use registered installers.</li>
-  <li>Ask each to confirm roof condition and structure, the TNB connection, and a price per kWp. Compare against the RM ${n(a.capexSmall)}/kWp assumed here.</li>
+  <li>Ask each to confirm roof condition and structure, the TNB connection, and a price per kWp. Compare against the RM ${n(s.capex / s.kwp)}/kWp assumed here.</li>
 </ol></div>` : ''}
 <button onclick="print()">Save as PDF / print</button>
 <h1>${esc(s.name || s.categoryLabel)}</h1>

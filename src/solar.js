@@ -11,9 +11,12 @@ export const DEFAULT_ASSUMPTIONS = {
   panelDensity: 0.18, // kWp per m2 of usable roof (incl. spacing)
   panelWatt: 550, // W per module, for panel counts in exports and site briefs
   emissionFactor: 0.758, // kg CO2 per kWh, Peninsular Malaysia grid
-  tariffResidential: 0.45, // RM/kWh avoided (effective)
-  tariffCommercial: 0.5,
-  tariffIndustrial: 0.42,
+  tariffResidential: 0.45, // RM/kWh avoided (effective, flat home tariff)
+  // Businesses on medium-voltage tariffs also pay per-kW capacity and network
+  // charges, which rooftop solar can't reliably cut (they are valued for batteries
+  // instead). So business solar is credited at the energy charge only.
+  tariffCommercial: 0.35, // RM/kWh energy charge (placeholder)
+  tariffIndustrial: 0.3, // RM/kWh energy charge (placeholder)
   exportSMP: 0.3, // RM/kWh: ATAP (from 1 Jan 2026) pays exports at System Marginal Price, vendors quote 25-35 sen
   atapCapKw: 1000, // ATAP cap per non-domestic system (1 MW)
   homeCapKw: 15, // ATAP cap for domestic systems (5-15 kW band)
@@ -25,19 +28,22 @@ export const DEFAULT_ASSUMPTIONS = {
   leasePerRoof: 300, // RM/yr paid to each homeowner (placeholder, not a quoted rate)
   creamRadiusKm: 5, // buyers must be within this distance
   creamMinHomes: 15, // smallest cluster worth aggregating
+  creamCapexPerKwp: 3000, // RM per kWp when one aggregator installs hundreds of roofs at once (placeholder)
   // Battery storage (verify charges against TNB's schedule before quoting)
   capacityCharge: 29.43, // RM per kW per month, medium voltage (secondary source)
   networkCharge: 59.84, // RM per kW per month, medium voltage (secondary source)
   batteryCapexPerKwh: 1800, // RM per kWh installed, LFP containerised (placeholder)
-  capexSmall: 4000, // RM per kWp, systems < 50 kWp
-  capexLarge: 2800, // RM per kWp, systems >= 50 kWp
+  capexSmall: 4000, // RM per kWp at 10 kWp and below (homes)
+  capexLarge: 2800, // RM per kWp at 100 kWp and above; linear in between
+  capexCarport: 4000, // RM per kWp for car-park canopies, including the steel structure
+  omPctCapex: 0.012, // operation and maintenance per year, as a share of capex
   minKwp: 3,
   // Homes
   homeKwhMonth: 500, // household use per landed home (placeholder: check against real TNB bills)
   homeFootprintM2: 130, // typical terrace footprint, to count homes in row polygons
   exportCreditCap: 1, // 1 = export credits can't exceed the import bill (conservative until ATAP rule is confirmed)
   mortgageRate: 0.04, // for the "add solar to the mortgage" option
-  mortgageYears: 30,
+  mortgageYears: 25, // no longer than the panels' 25-year life
   paybackTarget: 7 // years: the "pays back fast" line in the headline funnel
 };
 
@@ -50,6 +56,9 @@ const USABLE_FRACTION = {
   industrial: 0.75, institutional: 0.55, canopy: 0.8, carpark: 0.55, unknown: 0.5
 };
 // Base-load intensity proxy (kWh per m2 of floor area per year).
+// Floors used for the demand proxy when OSM has no height or levels tag. A tall
+// shed is still one floor: counting a 12 m warehouse as 3-4 floors inflated its use.
+const UNTAGGED_FLOORS = { industrial: 1, retail: 2, commercial: 3, institutional: 2, apartments: 10, canopy: 1, unknown: 1, carpark: 1, residential: 1 };
 const DEMAND_INTENSITY = {
   residential: 45, apartments: 50, retail: 280, commercial: 220,
   industrial: 250, institutional: 100, canopy: 0, carpark: 0, unknown: 80
@@ -143,7 +152,15 @@ export function buildSites(raw) {
   return { sites, origin: [lon0, lat0] };
 }
 
-const tariffFor = (cat, a) =>
+// Installed cost per kWp: linear from capexSmall at 10 kWp to capexLarge at 100 kWp,
+// so there is no price cliff; car-park canopies carry the cost of their structure.
+export function capexPerKwp(s, kwp, a) {
+  if (s.category === 'carpark') return a.capexCarport;
+  const t = Math.max(0, Math.min(1, (kwp - 10) / 90));
+  return a.capexSmall + (a.capexLarge - a.capexSmall) * t;
+}
+
+export const tariffFor = (cat, a) =>
   cat === 'industrial' ? a.tariffIndustrial
   : cat === 'residential' || cat === 'apartments' ? a.tariffResidential
   : a.tariffCommercial;
@@ -170,7 +187,8 @@ export function scoreSites(sites, a, yieldData = null) {
     const usable = s.area * USABLE_FRACTION[s.category];
     const homes = homesIn(s, a);
     // Homes: real household use, not floor area. Others: floor-area demand proxy.
-    const demand = homes ? homes * a.homeKwhMonth * 12 : s.area * Math.max(1, s.levels) * DEMAND_INTENSITY[s.category];
+    const floors = /^OSM/.test(s.heightSource) ? Math.max(1, s.levels) : UNTAGGED_FLOORS[s.category] ?? 1;
+    const demand = homes ? homes * a.homeKwhMonth * 12 : s.area * floors * DEMAND_INTENSITY[s.category];
     const y = siteYield(s, yieldData, a);
     const uncappedKwp = usable * a.panelDensity;
     // Homes are sized to cover their own yearly use, within ATAP's 15 kW per home.
@@ -185,13 +203,14 @@ export function scoreSites(sites, a, yieldData = null) {
     const lifetimeKwh = kwh * lifeYears * lifeFactor;
     const selfUse = Math.min(kwh, demand * DAYTIME_SHARE[s.category]);
     const exported = kwh - selfUse;
-    const capex = kwp * (kwp >= 50 ? a.capexLarge : a.capexSmall);
+    const capex = kwp * capexPerKwp(s, kwp, a);
+    const om = capex * a.omPctCapex;
     const tariff = tariffFor(s.category, a);
     let exportValue = exported * a.exportSMP;
     // Conservative: export credits only offset the remaining bill (car parks feed their host building).
     if (a.exportCreditCap && demand > 0) exportValue = Math.min(exportValue, Math.max(0, demand - selfUse) * tariff);
     const savings = selfUse * tariff + exportValue;
-    const payback = savings > 0 ? capex / savings : Infinity;
+    const payback = savings > om ? capex / (savings - om) : Infinity;
     const co2 = (kwh * a.emissionFactor) / 1000;
 
     const flags = [];
@@ -213,31 +232,12 @@ export function scoreSites(sites, a, yieldData = null) {
       (scored.includes('Too small') ? 0.3 : scored.length ? 0.8 : 1);
 
     Object.assign(s, {
-      usable, homes, roofKwp, roofKwh, kwp, kwh, demand, selfUse, exported, capex, savings, payback, co2,
+      usable, homes, roofKwp, roofKwh, kwp, kwh, demand, selfUse, exported, capex, om, savings, payback, co2,
       atapCapped, kwhP90, lifetimeKwh, specificYield: y.p50, yieldP90: y.p90, yieldTilt: y.tilt,
       selfRatio: selfScore, flags, score
     });
   }
   return sites;
-}
-
-// Link community buildings (schools, clinics) to the nearest high-surplus
-// commercial/industrial sites to propose energy-sharing micro-grids.
-export function microGridLinks(sites, community, maxDistM = 1500, perSite = 2) {
-  const donors = sites
-    .filter((s) => s.exported > 20000 && !s.flags.includes('Too small'))
-    .sort((a, b) => b.exported - a.exported)
-    .slice(0, 150);
-  const links = [];
-  for (const c of community) {
-    const near = donors
-      .map((d) => ({ d, dist: distanceM(c.position, d.position) }))
-      .filter((x) => x.dist <= maxDistM)
-      .sort((a, b) => a.dist - b.dist)
-      .slice(0, perSite);
-    for (const { d, dist } of near) links.push({ from: d.position, to: c.position, donor: d, community: c, dist });
-  }
-  return links;
 }
 
 // The honest headline: all viable roofs -> those needing no special approval
@@ -246,7 +246,7 @@ const NEEDS_APPROVAL = ['Zoning / heritage review', 'Strata approval needed'];
 export function funnel(sites, a) {
   const all = sites.filter((s) => !s.flags.includes('Too small'));
   const noApproval = all.filter((s) => !s.flags.some((f) => NEEDS_APPROVAL.includes(f)));
-  const fast = noApproval.filter((s) => s.payback <= a.paybackTarget);
+  const fast = noApproval.filter((s) => s.payback <= a.paybackTarget && s.category !== 'unknown');
   const kwp = (list) => list.reduce((t, s) => t + s.kwp, 0);
   return { all: kwp(all), noApproval: kwp(noApproval), fast: kwp(fast), fastSites: fast, counts: [all.length, noApproval.length, fast.length] };
 }
@@ -353,6 +353,8 @@ export function toCSV(sites) {
     ['co2_tonnes_per_year', (s) => s.co2.toFixed(1)], ['score', (s) => s.score.toFixed(0)],
     ['flags', (s) => s.flags.join('; ')]
   ];
-  const esc = (v) => (/[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : v);
+  // Quote values with commas or quotes; neutralise text starting with = + - @ so OSM names can't run as spreadsheet formulas.
+  const safe = (v) => (typeof v === 'string' && /^[=+\-@]/.test(v) && Number.isNaN(Number(v)) ? `'${v}` : v);
+  const esc = (v) => { v = safe(v); return /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : v; };
   return [cols.map((c) => c[0]).join(','), ...sites.map((s, i) => cols.map(([, f]) => esc(f(s, i))).join(','))].join('\n');
 }

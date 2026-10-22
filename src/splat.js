@@ -11,6 +11,9 @@ const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 const siteId = params.get('site');
 const isSample = params.has('sample');
+const BASE = import.meta.env.BASE_URL;
+// Registry URLs may be relative to the app ("splats/x.ksplat"), root-relative or absolute.
+const resolveUrl = (u) => (/^https?:/.test(u) ? u : new URL(u.replace(/^\//, ''), new URL(BASE, location.href)).href);
 const fmt = (v, d = 0) => (Number.isFinite(v) ? v.toLocaleString('en-MY', { maximumFractionDigits: d, minimumFractionDigits: d }) : '—');
 const DEG = Math.PI / 180;
 
@@ -165,7 +168,7 @@ $('copyEntry').onclick = () => {
   }
   const [captured, ...source] = $('f-captured').value.split('·').map((x) => x.trim());
   const entry = {
-    url: scan?.url || `/splats/${(site?.id || 'site').replace('/', '-')}.ksplat`,
+    url: scan?.url || `splats/${(site?.id || 'site').replace('/', '-')}.ksplat`,
     title: site?.name || scan?.title || '',
     captured: captured || undefined,
     source: source.join(' · ') || scan?.source,
@@ -179,7 +182,7 @@ $('copyEntry').onclick = () => {
 
 // ---------- splat ----------
 async function loadSplat() {
-  const reg = await fetch('/splats/scans.json').then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
+  const reg = await fetch(`${BASE}splats/scans.json`).then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
   scan = isSample ? reg.sample : reg.scans?.[siteId] || site?.scan || null;
   if (isSample && !site) site = DEMO_SITE;
   overlay = structuredClone(scan?.overlay || DEFAULT_OVERLAY);
@@ -204,7 +207,7 @@ async function loadSplat() {
   const progress = $('progress');
   progress.hidden = false;
   try {
-    await viewer.addSplatScene(scan.url, {
+    await viewer.addSplatScene(resolveUrl(scan.url), {
       showLoadingUI: false,
       progressiveLoad: true,
       onProgress: (pct) => (progress.textContent = `Loading scan… ${Math.round(pct)}%`)
@@ -218,12 +221,16 @@ async function loadSplat() {
 }
 
 // The parent app posts the site's footprint and estimates after the frame loads.
+// Inside the app: ask the parent for the site and wait for its reply.
+// Opened on its own: load straight from the URL.
 let started = false;
-window.addEventListener('message', (e) => {
-  if (e.origin !== location.origin || e.data?.type !== 'site' || started) return;
-  started = true;
-  site = e.data.site;
-  loadSplat();
-});
-// Standalone use (no parent message within a moment): load from the URL alone.
-setTimeout(() => { if (!started) { started = true; loadSplat(); } }, 400);
+const start = (s) => { if (started) return; started = true; site = s || null; loadSplat(); };
+if (window.parent !== window) {
+  window.addEventListener('message', (e) => {
+    if (e.origin === location.origin && e.source === window.parent && e.data?.type === 'site') start(e.data.site);
+  });
+  window.parent.postMessage({ type: 'ready' }, location.origin);
+  setTimeout(() => start(null), 3000); // parent never answered: fall back to the URL
+} else {
+  start(null);
+}

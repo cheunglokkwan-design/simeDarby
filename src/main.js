@@ -13,6 +13,7 @@ import { planStorage } from './storage.js';
 import { supabase, loadAssumptionOverrides, saveShortlist } from './supabase.js';
 
 const $ = (id) => document.getElementById(id);
+const BASE = import.meta.env.BASE_URL; // '/' locally; a sub-path when hosted, e.g. on GitHub Pages
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const TABS = ['find', 'share', 'store'];
 const BUSINESS = new Set(['retail', 'commercial', 'industrial', 'institutional']);
@@ -21,7 +22,7 @@ const HOMES = new Set(['residential', 'apartments']);
 const state = {
   township: 'ara-damansara',
   tab: 'share', // lead with SDP's community solar
-  findFilter: 'all',
+  findFilter: 'business', // homes are tab 1's story; Find leads with businesses
   colorBy: 'score',
   raw: null,
   sites: [],
@@ -54,6 +55,7 @@ const years = (y) => (Number.isFinite(y) ? `${fmt(y, 1)} yrs` : 'no payback');
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 const label = (s) => s.name || s.categoryLabel;
 const zoneName = (c) => `Zone ${c.id.slice(1)}`;
+const plural = (n, one, many) => `${fmt(n)} ${n === 1 ? one : many}`;
 
 // ---------- map ----------
 const DARK_STYLE = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
@@ -84,6 +86,14 @@ const map = new maplibregl.Map({
 map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'bottom-right');
 const overlay = new MapboxOverlay({ interleaved: false, layers: [], getTooltip });
 map.addControl(overlay);
+let mapErrorShown = false;
+map.on('error', (e) => {
+  if (mapErrorShown) return;
+  mapErrorShown = true;
+  console.warn('Map error', e.error);
+  setLoading('Some basemap tiles could not load (offline or blocked). The 3D buildings still work.');
+  setTimeout(() => setLoading(null), 6000);
+});
 
 // ---------- colours ----------
 const RAMP = [[60, 45, 95], [140, 50, 110], [220, 85, 70], [250, 165, 50], [255, 232, 115]];
@@ -106,6 +116,7 @@ const rgb = (c) => `rgb(${c.join(',')})`;
 function buildingColor(s) {
   if (state.selected === s) return SELECTED;
   if (state.tab === 'find') {
+    if (!FILTERS[state.findFilter][1](s)) return NEUTRAL; // outside the chosen filter: dimmed
     if (s.flags.includes('Too small')) return TOO_SMALL;
     return state.colorBy === 'sun' ? SUN_RAMP(s.shading ?? 1) : ramp(s.score / 85);
   }
@@ -123,14 +134,16 @@ function sunTimestamp() {
   const h = Math.floor(state.hour), m = Math.round((state.hour - h) * 60);
   return Date.UTC(2026, state.month, 21, h - 8, m); // Malaysia is UTC+8
 }
+// One lighting effect for the app's lifetime, updated in place: re-creating it
+// (and its shadow passes) on every render made the sun animation stutter.
+// Keep the shadow pass on: toggling deck.gl's experimental _shadow flag after
+// the first render blanks every layer. Hide shadows with a transparent colour.
+const sunLight = new SunLight({ timestamp: Date.now(), color: [255, 245, 225], intensity: 2.2, _shadow: true });
+const lighting = new LightingEffect({ ambient: new AmbientLight({ color: [255, 255, 255], intensity: 1.0 }), sun: sunLight });
 function lightingEffect() {
-  const ambient = new AmbientLight({ color: [255, 255, 255], intensity: 1.0 });
-  // Keep the shadow pass on: toggling deck.gl's experimental _shadow flag after
-  // the first render blanks every layer. Hide shadows with a transparent colour.
-  const sun = new SunLight({ timestamp: sunTimestamp(), color: [255, 245, 225], intensity: 2.2, _shadow: true });
-  const fx = new LightingEffect({ ambient, sun });
-  fx.shadowColor = [0, 0, 0, state.shadows && state.tab === 'find' ? 0.5 : 0];
-  return fx;
+  sunLight.timestamp = sunTimestamp();
+  lighting.shadowColor = [0, 0, 0, state.shadows && state.tab === 'find' ? 0.5 : 0];
+  return lighting;
 }
 
 // ---------- layers: each tab shows only its own story ----------
@@ -145,7 +158,7 @@ function render() {
   if (!state.raw) return;
   const [s, w, n, e] = TOWNSHIPS[state.township].bbox;
   const pad = 0.01;
-  const trig = [state.tab, state.colorBy, state.selected?.id, state.selectedZone?.id, state.shadingReady, state.version];
+  const trig = [state.tab, state.colorBy, state.findFilter, state.selected?.id, state.selectedZone?.id, state.shadingReady, state.version];
   const buildings = state.sites.filter((x) => x.category !== 'carpark');
 
   const layers = [
@@ -191,16 +204,20 @@ function render() {
   }
 
   if (state.tab === 'share' && state.cream) {
+    // The blue homes already show the zones; only the selected zone gets an outline,
+    // and only the biggest zones get labels, so the map stays readable.
     const zones = state.cream.clusters;
+    const labelled = [...zones].sort((x, y) => y.homeCount - x.homeCount).slice(0, 8);
+    if (state.selectedZone && !labelled.includes(state.selectedZone)) labelled.push(state.selectedZone);
     layers.push(
       new PolygonLayer({
         id: 'zones',
-        data: zones,
+        data: state.selectedZone ? [state.selectedZone] : [],
         getPolygon: (c) => c.hull,
         filled: true,
         stroked: true,
-        getFillColor: (c) => [...ZONE, c === state.selectedZone ? 90 : 45],
-        getLineColor: (c) => (c === state.selectedZone ? ZONE_SEL : ZONE),
+        getFillColor: [...ZONE, 40],
+        getLineColor: ZONE_SEL,
         lineWidthMinPixels: 2,
         pickable: true,
         updateTriggers: { getFillColor: trig, getLineColor: trig }
@@ -208,7 +225,7 @@ function render() {
       new TextLayer({
         ...textDefaults,
         id: 'zone-labels',
-        data: zones,
+        data: labelled,
         getPosition: (c) => [...c.position, 30],
         getText: (c) => `${zoneName(c)} · ${fmt(c.homeCount)} homes`,
         getBackgroundColor: (c) => (c === state.selectedZone ? [21, 94, 134, 240] : [21, 70, 100, 210]),
@@ -231,7 +248,7 @@ function render() {
         new TextLayer({
           ...textDefaults,
           id: 'buyer-labels',
-          data: buyers.slice(0, 5),
+          data: buyers.filter((b) => b.site.name).slice(0, 3), // named buyers only, to avoid clutter
           getPosition: (b) => [...b.site.position, b.site.height + 12],
           getText: (b) => `Buys power: ${label(b.site)}`,
           getSize: 11,
@@ -363,7 +380,7 @@ function renderImpact() {
   const k = summarise(f.fastSites);
   $('impact').innerHTML = `
     <div class="metric funnel" title="${fmt(f.all / 1000)} MWp on all viable roofs → ${fmt(f.noApproval / 1000)} MWp needing no special approval → ${fmt(f.fast / 1000)} MWp paying back within ${a.paybackTarget} years">
-      <span class="steps">${fmt(f.all / 1000)} → ${fmt(f.noApproval / 1000)} →</span><b>${fmt(f.fast / 1000)} MWp</b><span>pays back ≤ ${a.paybackTarget} yrs</span></div>
+      <b>${fmt(f.fast / 1000)} MWp</b><span>ready to build: pays back ≤ ${a.paybackTarget} yrs, no special approval <span class="steps">(of ${fmt(f.all / 1000)} MWp possible)</span></span></div>
     <div class="metric"><b>${fmt(k.kwh / 1e6, 0)} GWh</b><span>clean power / yr</span></div>
     <div class="metric hero"><b>${fmt(k.co2 / 1000, 0)} kt CO₂</b><span>avoided / yr</span></div>
     <div class="metric"><b>${rm(k.savings)}</b><span>bill savings / yr</span></div>`;
@@ -371,10 +388,10 @@ function renderImpact() {
 
 // ---------- tab panels ----------
 const FILTERS = {
-  all: ['All', () => true],
   business: ['Businesses', (s) => BUSINESS.has(s.category)],
+  carparks: ['Car parks', (s) => s.category === 'carpark'],
   homes: ['Homes', (s) => HOMES.has(s.category)],
-  carparks: ['Car parks', (s) => s.category === 'carpark']
+  all: ['All', () => true]
 };
 
 function renderPanel() {
@@ -395,7 +412,7 @@ function findPanel() {
     <div class="chips" role="group" aria-label="Filter">${Object.entries(FILTERS)
       .map(([k, [name]]) => `<button class="chip" data-filter="${k}" aria-pressed="${k === state.findFilter}">${name}</button>`).join('')}</div>
     <ol class="list" data-list="sites">${list.map((s) => `
-      <li data-id="${esc(s.id)}" class="${state.selected === s ? 'sel' : ''}">
+      <li tabindex="0" role="button" data-id="${esc(s.id)}" class="${state.selected === s ? 'sel' : ''}">
         <div><div class="t">${esc(label(s))}</div><div class="m">${power(s.kwp)}${s.atapCapped ? ' <abbr title="Capped by Solar ATAP at 1 MW or the building\'s peak demand">(ATAP cap)</abbr>' : ''} · saves ${rm(s.savings)}/yr · ${years(s.payback)}</div></div>
         <span class="pill" title="Opportunity score out of 100">${fmt(s.score)}</span>
       </li>`).join('')}</ol>
@@ -418,15 +435,15 @@ function sharePanel() {
   const invest = clusters.reduce((s, c) => s + c.capex, 0);
   return `
     <h2>Community solar in SDP's own townships</h2>
-    <p class="lede">SDP leases the roofs of homes it built, and sells the power to businesses nearby over TNB's network under CREAM. Homeowners earn rent, businesses buy cheaper clean power, and SDP earns the margin. Click a zone, or any blue home, to see what one household gets.</p>
+    <p class="lede">SDP builds the homes, so it can make them solar homes: bundled into the mortgage for new buyers, or, for homes already sold, leased under CREAM with the power sold to businesses nearby over TNB's network. Click a zone, or any blue home, to see what one household gets.</p>
     <div class="stats">
       <div class="stat"><b>${fmt(t.homes)}</b><span>homes in ${t.clusters} zones</span></div>
       <div class="stat"><b>${rm(t.leaseIncome)}</b><span>to homeowners / yr</span></div>
-      <div class="stat"><b>${years(margin > 0 ? invest / margin : Infinity)}</b><span>SDP payback on ${rm(invest)}</span></div>
+      <div class="stat"><b>${years(margin > 0 ? invest / margin : Infinity)}</b><span>CREAM payback on ${rm(invest)}</span></div>
     </div>
     ${clusters.length ? `<ol class="list" data-list="zones">${clusters.slice(0, 10).map((c) => `
-      <li data-zone="${c.id}" class="${state.selectedZone === c ? 'sel' : ''}">
-        <div><div class="t">${zoneName(c)} · ${fmt(c.homeCount)} homes</div><div class="m">${power(c.kwp)} · sells to ${c.buyers.length} businesses nearby</div></div>
+      <li tabindex="0" role="button" data-zone="${c.id}" class="${state.selectedZone === c ? 'sel' : ''}">
+        <div><div class="t">${zoneName(c)} · ${fmt(c.homeCount)} homes</div><div class="m">${power(c.kwp)} · sells to ${plural(c.buyers.length, "business", "businesses")} nearby</div></div>
         <span class="pill zone">${power(c.kwp)}</span>
       </li>`).join('')}</ol>` : '<p class="empty">No housing estates large enough for a community-solar zone here.</p>'}
     <details class="more"><summary>More detail</summary><div class="body">
@@ -457,7 +474,7 @@ function storePanel() {
     <p class="note">At today's assumed RM ${fmt(state.assumptions.batteryCapexPerKwh)}/kWh. Home batteries aren't modelled: on a flat home tariff there is no peak charge to save.</p>` : '';
   return `
     <h2>Battery storage</h2>
-    <p class="lede">Batteries at malls and factories cut the monthly peak demand that drives TNB's capacity and network charges, and store solar for the evening.</p>
+    <p class="lede">Batteries at malls, offices and factories cut the monthly peak demand that drives TNB's per-kW capacity and network charges.</p>
     <div class="stats">
       <div class="stat"><b>${list.length}</b><span>battery sites</span></div>
       <div class="stat"><b>${fmt(kwh / 1000, 1)} MWh</b><span>storage</span></div>
@@ -465,7 +482,7 @@ function storePanel() {
     </div>
     ${payTable ? `<details class="more" open><summary>When do batteries pay?</summary><div class="body">${payTable}</div></details>` : ''}
     ${list.length ? `<ol class="list" data-list="batteries">${list.slice(0, 10).map((b) => `
-      <li data-id="${esc(b.site.id)}" class="${state.selected === b.site ? 'sel' : ''}">
+      <li tabindex="0" role="button" data-id="${esc(b.site.id)}" class="${state.selected === b.site ? 'sel' : ''}">
         <div><div class="t">${esc(label(b.site))}</div><div class="m">cuts peak by ${power(b.peakCutKw)} · saves ${rm(b.value)}/yr · ${years(b.payback)}</div></div>
         <span class="pill bat">${power(b.kw)}</span>
       </li>`).join('')}</ol>` : '<p class="empty">No sites with surplus solar and a large enough peak.</p>'}
@@ -487,6 +504,11 @@ $('panel').addEventListener('click', (e) => {
   if (li.dataset.zone) return selectZone(state.cream.clusters.find((c) => c.id === li.dataset.zone), true);
   const site = state.sites.find((s) => s.id === li.dataset.id);
   if (site) select(site, true);
+});
+
+// List items are keyboard-operable: Enter or Space acts like a click.
+$('panel').addEventListener('keydown', (e) => {
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('li[role=button]')) { e.preventDefault(); e.target.click(); }
 });
 
 // ---------- site / zone card ----------
@@ -515,16 +537,16 @@ function houseCard(s) {
   const kwp = s.kwp / n, capex = s.capex / n, perMonth = s.savings / n / 12;
   const kwhMonth = s.kwh / n / 12;
   const loan = monthlyPayment(capex, a.mortgageRate, a.mortgageYears);
-  const net = perMonth - loan;
+  const omMonth = (s.om || 0) / n / 12;
+  const net = perMonth - omMonth - loan; // after the loan and maintenance
   const lease = a.leasePerRoof / 12;
   const zone = state.zoneOf.get(s);
-  // SDP as aggregator, per leased roof: investment, yearly net after rent and
-  // access charges, and the highest rent that still pays back within 10 years.
+  // SDP as CREAM aggregator, per leased roof: investment, yearly net after rent,
+  // TNB access charges and O&M, and the install price that would give a 10-year payback.
   const sdp = zone && zone.homeCount ? zone.net / zone.homeCount : null;
   const sdpCapex = zone && zone.homeCount ? zone.capex / zone.homeCount : null;
-  const maxRent = sdp != null ? Math.max(0, sdp + a.leasePerRoof - sdpCapex / 10) : null;
   const life = state.yieldData?.lifetimeFactor ?? 0.94;
-  const buy25 = perMonth * 12 * 25 * life - capex;
+  const buy25 = (perMonth * 12 * life - omMonth * 12) * 25 - capex; // savings after upkeep, over 25 years
   return `
     <button class="x" data-act="close" aria-label="Close">×</button>
     <h3>Your house: solar options</h3>
@@ -536,18 +558,17 @@ function houseCard(s) {
         <ul><li>${rm(capex)} upfront</li><li>Pays back in ${years(s.payback)}</li><li>${rm(buy25)} better off over 25 yrs</li></ul></div>
       <div class="opt best"><h4>Add to mortgage</h4>
         <b>${net >= 0 ? '+' : '−'}${rm(Math.abs(net))}</b><span>${net >= 0 ? 'better off' : 'worse off'} every month</span>
-        <ul><li>RM 0 upfront</li><li>+${rm(loan)}/mo on the loan (${fmt(a.mortgageRate * 100, 1)}%, ${a.mortgageYears} yrs)</li><li>−${rm(perMonth)}/mo on the TNB bill</li></ul></div>
+        <ul><li>RM 0 upfront; best for new SDP homes</li><li>+${rm(loan)}/mo on the loan (${fmt(a.mortgageRate * 100, 1)}%, ${a.mortgageYears} yrs) and ${rm(omMonth)}/mo upkeep</li><li>−${rm(perMonth)}/mo on the TNB bill</li></ul></div>
       <div class="opt"><h4>Lease the roof</h4>
         <b>${rm(lease)}</b><span>rent per month</span>
-        <ul><li>RM 0 upfront, no maintenance</li><li>Bill unchanged</li><li>${zone ? `Power sold to ${zone.buyers.length} businesses nearby` : 'Needs a community-solar zone nearby'}</li></ul></div>
+        <ul><li>RM 0 upfront, no maintenance</li><li>Bill unchanged</li><li>${zone ? `Power sold to ${plural(zone.buyers.length, "business", "businesses")} nearby` : 'Needs a community-solar zone nearby'}</li></ul></div>
     </div>
     ${sdp != null ? `<details><summary>What SDP gains</summary>${kv([
-      ['SDP invests per roof', rm(sdpCapex)],
-      ['Earns per roof, after rent and TNB charges', `${rm(sdp)}/yr`],
-      ['SDP payback', years(sdpCapex / sdp)],
-      ['Highest rent that still pays back in 10 yrs', `${rm(maxRent / 12)}/month per home`],
-      ['Selling point for new launches', 'solar-ready homes with lower bills']
-    ])}<p class="note">The RM ${fmt(a.leasePerRoof)}/yr rent is a placeholder: the last row shows how much room there is to share more with homeowners.</p></details>` : ''}
+      ['New homes', 'sell them solar-ready: buyers are better off from day one'],
+      ['Leasing existing roofs (CREAM)', `${rm(sdpCapex)} per roof, earns ${rm(sdp)}/yr after rent, TNB charges and upkeep`],
+      ['CREAM payback', years(sdp > 0 ? sdpCapex / sdp : Infinity)],
+      ['Pays back in 10 yrs if installed at', `≤ RM ${fmt(zone.targetPerKwp)}/kWp (assumed RM ${fmt(a.creamCapexPerKwp)})`]
+    ])}<p class="note">Leasing pays slowly at these placeholder prices: the last row is the bulk price to negotiate with an aggregator. The RM ${fmt(a.leasePerRoof)}/yr rent is also a placeholder.</p></details>` : ''}
     <details><summary>Assumptions</summary><div class="body">
       <p>Household use ${fmt(a.homeKwhMonth)} kWh/month, home tariff ${fmt(a.tariffResidential * 100)} sen/kWh, ${fmt(a.capexSmall)} RM/kWp installed, exports paid at ATAP SMP ${fmt(a.exportSMP * 100)} sen/kWh${a.exportCreditCap ? ' and capped at the bill' : ''}, lease RM ${fmt(a.leasePerRoof)}/yr. All editable in ⚙ Settings; check against real TNB bills and installer quotes.</p>
     </div></details>
@@ -586,6 +607,7 @@ function siteCard(s) {
     <details><summary>Money</summary>${kv([
       ['Installation cost', rm(s.capex)],
       ['Savings per year', rm(s.savings)],
+      ['Operation & maintenance', `${rm(s.om)}/yr`],
       ['Payback', years(s.payback)],
       ['Export price', `${fmt(a.exportSMP * 100)} sen/kWh <small>(ATAP SMP)</small>`],
       ...(s.atapCapped ? [['Size limit', 'capped by Solar ATAP (1 MW or peak demand)']] : [])
@@ -651,10 +673,14 @@ function scanPayload(s) {
   };
 }
 function openScan(s) {
-  const f = $('modalFrame');
-  openModal(`Drone scan: ${label(s)}`, { src: `/splat.html?site=${encodeURIComponent(s.id)}` });
-  f.onload = () => f.contentWindow?.postMessage({ type: 'site', site: scanPayload(s) }, location.origin);
+  state.pendingScan = scanPayload(s);
+  openModal(`Drone scan: ${label(s)}`, { src: `${BASE}splat.html?site=${encodeURIComponent(s.id)}` });
 }
+// The viewer asks for its site once it has loaded, so there is no race with page load.
+window.addEventListener('message', (e) => {
+  if (e.origin !== location.origin || e.source !== $('modalFrame').contentWindow || e.data?.type !== 'ready') return;
+  e.source.postMessage({ type: 'site', site: state.pendingScan }, location.origin);
+});
 
 function zoneCard(c) {
   const a = state.assumptions;
@@ -672,7 +698,8 @@ function zoneCard(c) {
     </div>
     <details open><summary>Who buys the power</summary>${kv(c.buyers.slice(0, 6).map((b) => [esc(label(b.site)), `${fmt(b.kwh / 1000)} MWh/yr · ${fmt(b.dist / 1000, 1)} km`]))}</details>
     <details><summary>Money</summary>${kv([
-      ['Sales to buyers', rm(c.revenue)],
+      ['Energy sales (incl. surplus to grid)', rm(c.revenue)],
+      ['Operation & maintenance', rm(c.om)],
       ['TNB access charge', rm(c.accessCost)],
       ['Homeowner leases', rm(c.leaseCost)],
       ['Installation cost', rm(c.capex)],
@@ -715,13 +742,14 @@ function openModal(title, { src, html }) {
 }
 function closeModal() {
   $('modal').hidden = true;
-  $('modalFrame').onload = null;
+  state.pendingScan = null;
   $('modalFrame').src = 'about:blank';
 }
 $('modalClose').onclick = closeModal;
 $('modal').addEventListener('click', (e) => { if (e.target === $('modal')) closeModal(); });
 
 function openBrief(s, quotes = false) {
+  if (!s) return;
   openModal(`${quotes ? 'Request quotes' : 'Site brief'}: ${label(s)}`, {
     html: siteBriefHTML(s, {
       township: TOWNSHIPS[state.township].name,
@@ -771,6 +799,7 @@ function setTab(tab) {
   if (state.selected && tab === 'share') state.selected = null;
   document.querySelectorAll('#tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
   $('sun').hidden = tab !== 'find';
+  if (tab !== 'find') stopAnim();
   renderLegend();
   refreshUI();
 }
@@ -782,12 +811,13 @@ $('tabs').addEventListener('click', (e) => {
 // ---------- settings drawer ----------
 const SETTINGS = [
   ['Tariffs & policy', {
-    tariffResidential: 'Home tariff (RM/kWh)', tariffCommercial: 'Business tariff (RM/kWh)', tariffIndustrial: 'Industrial tariff (RM/kWh)',
+    tariffResidential: 'Home tariff (RM/kWh)', tariffCommercial: 'Business energy charge (RM/kWh)', tariffIndustrial: 'Industrial energy charge (RM/kWh)',
     exportSMP: 'Export price, ATAP SMP (RM/kWh)', atapCapKw: 'ATAP cap, businesses (kW)', homeCapKw: 'ATAP cap, homes (kW)',
     emissionFactor: 'Grid emissions (kg CO₂/kWh)'
   }],
   ['Solar costs & technology', {
-    capexSmall: 'Cost, systems under 50 kWp (RM/kWp)', capexLarge: 'Cost, systems 50 kWp+ (RM/kWp)', panelDensity: 'Panel density (kWp/m²)',
+    capexSmall: 'Cost at 10 kWp and below (RM/kWp)', capexLarge: 'Cost at 100 kWp and above (RM/kWp)', capexCarport: 'Car-park canopy cost (RM/kWp)',
+    omPctCapex: 'O&M per year (share of cost)', panelDensity: 'Panel density (kWp/m²)',
     panelWatt: 'Panel rating (W)', minKwp: 'Smallest viable system (kWp)', loadFactor: 'Load factor (for peak kW)',
     specificYield: 'Fallback yield (kWh/kWp/yr)'
   }],
@@ -798,7 +828,7 @@ const SETTINGS = [
   }],
   ['Community solar (CREAM)', {
     accessCharge: 'TNB access charge (RM/kWh)', creamDiscount: 'Buyer discount (share)', leasePerRoof: 'Lease per home (RM/yr)',
-    creamRadiusKm: 'Buyer radius (km)', creamMinHomes: 'Homes per zone, minimum'
+    creamRadiusKm: 'Buyer radius (km)', creamMinHomes: 'Homes per zone, minimum', creamCapexPerKwp: 'Bulk install cost (RM/kWp)'
   }],
   ['Storage & grid', {
     capacityCharge: 'Capacity charge (RM/kW/month)', networkCharge: 'Network charge (RM/kW/month)',
@@ -823,7 +853,7 @@ function download(ext, type, text) {
   const blob = new Blob([text], { type });
   const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `solar-shortlist-${state.township}.${ext}` });
   a.click();
-  URL.revokeObjectURL(a.href);
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 const SHORTLIST = 100;
 const toggleExport = (open) => { $('exportMenu').hidden = !open; $('exportBtn').setAttribute('aria-expanded', String(open)); };
@@ -856,6 +886,12 @@ $('month').onchange = (e) => { state.month = +e.target.value; render(); };
 $('hour').oninput = (e) => { state.hour = +e.target.value; syncSun(); render(); };
 $('shadows').onchange = (e) => { state.shadows = e.target.checked; render(); };
 let anim = null;
+function stopAnim() {
+  if (!anim) return;
+  cancelAnimationFrame(anim);
+  anim = null;
+  $('play').textContent = '▶';
+}
 $('play').onclick = () => {
   if (anim) { cancelAnimationFrame(anim); anim = null; $('play').textContent = '▶'; return; }
   $('play').textContent = '❚❚';
@@ -881,19 +917,20 @@ function tourSteps() {
   const bat = state.storage[0];
   const overview = () => map.flyTo({ center: [t.view.longitude, t.view.latitude], zoom: t.view.zoom, pitch: t.view.pitch, bearing: t.view.bearing, duration: 1800 });
   const steps = [];
-  if (zone) steps.push({ text: `SDP can run community solar in its own townships. In ${t.name}, ${fmt(state.cream.totals.homes)} homes form ${state.cream.totals.clusters} zones whose roofs SDP could lease, selling the power to businesses nearby.`, go: () => { setTab('share'); clearSelection(); overview(); } });
-  if (zone) steps.push({ text: `${zoneName(zone)}: ${fmt(zone.homeCount)} homes, ${power(zone.kwp)} of solar, sold to ${zone.buyers.length} businesses within ${a.creamRadiusKm} km. Homeowners earn ${rm(zone.leaseCost)} a year in rent.`, go: () => { setTab('share'); selectZone(zone, true); } });
+  if (zone) steps.push({ text: `SDP builds the homes, so it can sell them as solar homes. In ${t.name}, ${fmt(state.cream.totals.homes)} landed homes in ${state.cream.totals.clusters} neighbourhood zones could carry ${power(state.cream.totals.kwp)} of rooftop solar.`, go: () => { setTab('share'); clearSelection(); overview(); } });
   if (home) {
-    const n = home.homes || 1, save = home.savings / n / 12, loan = monthlyPayment(home.capex / n, a.mortgageRate, a.mortgageYears);
-    steps.push({ text: `One home: buy solar for ${rm(home.capex / n)} and save ${rm(save)} a month, or add it to the mortgage and be ${rm(Math.abs(save - loan))} a month ${save >= loan ? 'better' : 'worse'} off from day one, or lease the roof for ${rm(a.leasePerRoof / 12)} a month.`, go: () => { setTab('share'); select(home, true, zone); } });
+    const n = home.homes || 1, save = home.savings / n / 12, om = (home.om || 0) / n / 12, loan = monthlyPayment(home.capex / n, a.mortgageRate, a.mortgageYears), net = save - om - loan;
+    steps.push({ text: `One home: a ${fmt(home.kwp / n, 1)} kW system costs ${rm(home.capex / n)}. Bundled into the mortgage, the owner is ${rm(Math.abs(net))} a month ${net >= 0 ? 'better' : 'worse'} off from day one, after the loan and upkeep. Bought outright, it pays back in ${years(home.payback)}.`, go: () => { setTab('share'); select(home, true, zone); } });
   }
+  if (zone) steps.push({ text: `For homes already sold, SDP can lease the roofs under CREAM. ${zoneName(zone)}'s ${fmt(zone.homeCount)} homes would sell their power to ${plural(zone.buyers.length, 'business', 'businesses')} within ${a.creamRadiusKm} km. At today's placeholder prices that pays back in ${years(zone.net > 0 ? zone.capex / zone.net : Infinity)}; installing at RM ${fmt(zone.targetPerKwp)}/kWp would bring it to 10 years.`, go: () => { setTab('share'); selectZone(zone, true); } });
   if (top) steps.push({ text: `Businesses too: ${label(top)} can host ${power(top.kwp)} of solar, saving ${rm(top.savings)} a year and paying back in ${years(top.payback)}.`, go: () => { setTab('find'); select(top, true); } });
   if (bat) steps.push({ text: `Batteries pay slowly today: at ${label(bat.site)}, a ${power(bat.kw)} battery cuts the monthly peak by ${power(bat.peakCutKw)} and pays back in ${years(bat.payback)}.`, go: () => { setTab('store'); select(bat.site, true); } });
-  steps.push({ text: `The honest total for ${t.name}: ${fmt(f.all / 1000)} MWp on all roofs, ${fmt(f.noApproval / 1000)} MWp needing no special approval, and ${fmt(f.fast / 1000)} MWp paying back within ${a.paybackTarget} years: ${fmt(k.kwh / 1e6)} GWh and ${fmt(k.co2 / 1000)} kt of CO₂ avoided a year.`, go: () => { setTab('share'); clearSelection(); overview(); } });
+  steps.push({ text: `The honest total for ${t.name}: ${fmt(f.fast / 1000)} MWp of business roofs ready to build now (paying back within ${a.paybackTarget} years, no special approval), avoiding ${fmt(k.co2 / 1000)} kt of CO₂ a year, plus ${power(state.cream?.totals.kwp || 0)} on solar homes. ${fmt(f.all / 1000)} MWp is possible on every viable roof.`, go: () => { setTab('share'); clearSelection(); overview(); } });
   return steps;
 }
 let tour = null;
 function showTourStep(i) {
+  tour.steps = tourSteps(); // fresh objects: shading may have finished since the tour started
   const steps = tour.steps;
   tour.i = i;
   steps[i].go();
@@ -916,6 +953,7 @@ $('tour').addEventListener('click', (e) => {
 
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
+  if (!$('exportMenu').hidden) return toggleExport(false);
   if (!$('modal').hidden) return closeModal();
   if (!$('settings').hidden) return toggleSettings(false);
   if (tour) return endTour();
@@ -942,6 +980,10 @@ function recompute() {
 }
 
 function setStatus(t) { $('status').textContent = t; }
+function loadFailed(err) {
+  setLoading(`Could not load the township data (${err.message}). Check the connection and reload.`);
+  setStatus(`Load failed: ${err.message}`);
+}
 function setLoading(t) { $('loading').hidden = !t; $('loading').textContent = t || ''; }
 
 let worker;
@@ -963,22 +1005,30 @@ function runShading() {
       (state.yieldData ? `yield: ${state.yieldData.source}` : 'yield: fallback assumption'));
     recompute();
   };
+  worker.onerror = (e) => { setLoading(null); setStatus(`Shading simulation failed: ${e.message}`); };
   worker.postMessage({ lat, lon, items });
 }
 
+let loadSeq = 0;
 async function loadTownship(id, live = false) {
+  const tok = ++loadSeq;
+  stopAnim();
   state.township = id;
   state.selected = null;
   state.selectedZone = null;
+  state.buyerSet = new Set();
   endTour();
+  renderCard();
   const t = TOWNSHIPS[id];
   setLoading(live ? 'Fetching live data from OpenStreetMap…' : 'Loading township…');
   const optional = (name) => fetch(`${import.meta.env.BASE_URL}data/${name}-${id}.json`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
-  [state.raw, state.yieldData, state.storageData] = await Promise.all([
-    live ? fetchOverpass(t.bbox) : fetch(`${import.meta.env.BASE_URL}data/${id}.json`).then((r) => r.json()),
+  const [raw, yieldData, storageData] = await Promise.all([
+    live ? fetchOverpass(t.bbox) : fetch(`${import.meta.env.BASE_URL}data/${id}.json`).then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }),
     optional('yield'),
     optional('storage')
   ]);
+  if (tok !== loadSeq) return; // a newer township load started meanwhile
+  Object.assign(state, { raw, yieldData, storageData });
   const { sites, origin } = buildSites(state.raw);
   state.sites = sites;
   state.origin = origin;
@@ -990,14 +1040,14 @@ async function loadTownship(id, live = false) {
 async function init() {
   $('township').innerHTML = Object.entries(TOWNSHIPS).map(([k, t]) => `<option value="${k}">${t.name}</option>`).join('');
   $('township').value = state.township;
-  $('township').onchange = (e) => loadTownship(e.target.value);
-  $('refresh').onclick = () => loadTownship(state.township, true).catch((err) => { setLoading(null); setStatus(`Live fetch failed: ${err.message}`); });
+  $('township').onchange = (e) => loadTownship(e.target.value).catch(loadFailed);
+  $('refresh').onclick = () => loadTownship(state.township, true).catch(loadFailed);
   $('basemap').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.b === 'map')));
   syncSun();
   setTab(state.tab);
   renderSettings();
   state.scans = await fetch(`${import.meta.env.BASE_URL}splats/scans.json`).then((r) => (r.ok ? r.json() : {})).then((j) => j.scans || {}).catch(() => ({}));
-  $('sampleScan').onclick = () => openModal('3D viewer: sample scene', { src: '/splat.html?sample=1' });
+  $('sampleScan').onclick = () => { state.pendingScan = null; openModal('3D viewer: sample scene', { src: `${BASE}splat.html?sample=1` }); };
   if (supabase) {
     document.querySelector('[data-export="supabase"]').hidden = false;
     try {

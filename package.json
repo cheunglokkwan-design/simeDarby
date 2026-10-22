@@ -1,10 +1,8 @@
 {
   "name": "solar-opportunity-mapper",
   "version": "1.0.0",
-  "description": "Sime Darby Township of tomorrow hackathon",
-  "main": "index.js",
+  "description": "Solar Opportunity Mapper: open-data solar, community solar and battery screening for Sime Darby Property townships",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
@@ -18,7 +16,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "type": "module",
   "bugs": {
     "url": "https://github.com/cheunglokkwan-design/simeDarby/issues"

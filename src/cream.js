@@ -2,7 +2,7 @@
 // buyers within a set radius over TNB's network, paying a per-kWh access charge.
 // Mirrors SDP and GSPARX's Elmina pilot (April 2025).
 import { distanceM } from './geo.js';
-import { DAYTIME_SHARE } from './solar.js';
+import { DAYTIME_SHARE, tariffFor } from './solar.js';
 
 const CELL_DEG = 0.005; // ~550 m clustering grid
 const BUYER_CATEGORIES = new Set(['retail', 'commercial', 'industrial', 'institutional', 'apartments']);
@@ -40,7 +40,6 @@ export function planCream(sites, a) {
   // buyer's demand is counted twice.
   const remaining = new Map(buyers.map((b) => [b, b.residual]));
   const radiusM = a.creamRadiusKm * 1000;
-  const price = a.tariffCommercial * (1 - a.creamDiscount);
 
   clusters.forEach((c, i) => {
     c.id = `C${i + 1}`;
@@ -56,15 +55,17 @@ export function planCream(sites, a) {
       if (take <= 0) continue;
       remaining.set(b, remaining.get(b) - take);
       need -= take;
-      c.buyers.push({ site: b.site, kwh: take, dist });
+      // Each buyer pays its own grid tariff less the discount.
+      c.buyers.push({ site: b.site, kwh: take, dist, price: tariffFor(b.site.category, a) * (1 - a.creamDiscount) });
     }
     c.matchedKwh = c.kwh - need;
     c.unmatchedKwh = need;
-    c.revenue = c.matchedKwh * price + c.unmatchedKwh * a.exportSMP;
+    c.revenue = c.buyers.reduce((t, b) => t + b.kwh * b.price, 0) + c.unmatchedKwh * a.exportSMP;
     c.accessCost = c.matchedKwh * a.accessCharge;
     c.leaseCost = c.homeCount * a.leasePerRoof;
-    c.net = c.revenue - c.accessCost - c.leaseCost;
-    c.capex = c.kwp * a.capexSmall;
+    c.capex = c.kwp * a.creamCapexPerKwp; // bulk installation across the zone
+    c.om = c.capex * a.omPctCapex;
+    c.net = c.revenue - c.accessCost - c.leaseCost - c.om;
     c.payback = c.net > 0 ? c.capex / c.net : Infinity;
     c.co2 = (c.kwh * a.emissionFactor) / 1000;
   });
@@ -76,6 +77,13 @@ export function planCream(sites, a) {
     .filter((s) => s.affordable && !s.flags.includes('Too small'))
     .map((s) => ({ site: s, kwp: s.kwp, kwh: s.kwh, leaseIncome: s.kwp * leasePerKwp }))
     .sort((x, y) => y.leaseIncome - x.leaseIncome);
+
+  // Installed price per kWp at which the zone would pay back in `years`:
+  // capex = years x (yearly net before O&M - O&M), with O&M a share of capex.
+  for (const c of clusters) {
+    const gross = c.net + c.om;
+    c.targetPerKwp = c.kwp > 0 ? (10 * gross) / (1 + 10 * a.omPctCapex) / c.kwp : 0;
+  }
 
   const sum = (k) => clusters.reduce((t, c) => t + c[k], 0);
   return {

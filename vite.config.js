@@ -8,6 +8,8 @@ const root = realpathSync.native(fileURLToPath(new URL('.', import.meta.url)));
 
 export default defineConfig({
   root,
+  // Hosting under a sub-path (e.g. GitHub Pages at /simeDarby/): BASE=/simeDarby/ npm run build
+  base: process.env.BASE ?? '/',
   build: {
     rollupOptions: {
       input: { main: `${root}/index.html`, splat: `${root}/splat.html` }
