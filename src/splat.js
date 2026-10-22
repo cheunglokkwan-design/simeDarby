@@ -12,7 +12,9 @@ import { panelLayoutForSite } from './panels.js';
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 const siteId = params.get('site');
-const isSample = params.has('sample');
+// ?demo=1: the team's own drone scan (local file, not in git); ?sample=1: public test scene.
+const isDemo = params.has('demo');
+const isSample = params.has('sample') || isDemo;
 const BASE = import.meta.env.BASE_URL;
 // Registry URLs may be relative to the app ("splats/x.ksplat"), root-relative or absolute.
 const resolveUrl = (u) => (/^https?:/.test(u) ? u : new URL(u.replace(/^\//, ''), new URL(BASE, location.href)).href);
@@ -112,7 +114,8 @@ function renderSide() {
   $('title').textContent = scan ? (s?.name || scan.title || 'Drone scan') : s?.name || 'Drone scan';
   $('subtitle').textContent = [s?.category, scan?.captured, scan?.source].filter(Boolean).join(' · ');
   const badge = $('badge');
-  if (isSample) { badge.textContent = 'Sample scene: not an SDP roof'; badge.className = 'badge none'; }
+  if (isDemo) { badge.textContent = "Demo drone scan: team member's house, not an SDP site"; badge.className = 'badge'; }
+  else if (isSample) { badge.textContent = 'Sample scene: not an SDP roof'; badge.className = 'badge none'; }
   else if (scan) { badge.textContent = scan.reviewed ? 'Scan reviewed' : 'Scan available · awaiting review'; badge.className = 'badge'; }
   else { badge.textContent = 'No scan registered yet'; badge.className = 'badge none'; }
   const rows = s ? [
@@ -256,7 +259,7 @@ async function loadSplat() {
     try { local = await getLocalScan(siteId); }
     catch (err) { $('saveStatus').textContent = err.message; }
   }
-  scan = isSample ? reg.sample : local || site?.scan || reg.scans?.[siteId] || null;
+  scan = isSample ? (isDemo && reg.demo) || reg.sample : local || site?.scan || reg.scans?.[siteId] || null;
   if (!site && scan?.siteMetrics) site = scan.siteMetrics;
   if (isSample && !site) site = DEMO_SITE;
   overlay = structuredClone(scan?.overlay || DEFAULT_OVERLAY);

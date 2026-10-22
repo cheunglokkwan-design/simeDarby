@@ -12,3 +12,6 @@ dist/
 /qa-*.png
 /.drone-jobs/
 **/__pycache__/
+
+# Team member's house drone scan: private, local demo only
+public/splats/demo-house.*

@@ -1484,7 +1484,11 @@ async function init() {
   state.publishedScans = await fetch(`${import.meta.env.BASE_URL}splats/scans.json`).then((r) => (r.ok ? r.json() : {})).then((j) => j.scans || {}).catch(() => ({}));
   state.scans = { ...state.publishedScans };
   try { await refreshScans(); } catch (err) { setStatus(err.message); }
-  $('sampleScan').onclick = () => openModal('3D viewer: sample scene', { src: `${BASE}splat.html?sample=1` });
+  // Prefer the team's local demo scan when its file is present; otherwise the public sample.
+  $('sampleScan').onclick = async () => {
+    const demo = await fetch(`${BASE}splats/demo-house.splat`, { method: 'HEAD' }).then((r) => r.ok && !/html/.test(r.headers.get('content-type') || '')).catch(() => false);
+    openModal(demo ? '3D viewer: demo drone scan' : '3D viewer: sample scene', { src: `${BASE}splat.html?${demo ? 'demo' : 'sample'}=1` });
+  };
   if (supabase) {
     document.querySelector('[data-export="supabase"]').hidden = false;
     try {
