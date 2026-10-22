@@ -26,7 +26,7 @@ export const DEFAULT_ASSUMPTIONS = {
   accessCharge: 0.09, // RM/kWh TNB network access charge (cut from 15 to 9 sen, Sept 2025)
   creamDiscount: 0.1, // buyers pay the aggregator their grid tariff minus this share
   leasePerRoof: 300, // RM/yr paid to each homeowner (placeholder, not a quoted rate)
-  creamRadiusKm: 5, // buyers must be within this distance
+  creamRadiusKm: 5, // geographic screening radius only; CREAM uses connecting substation distance
   creamMinHomes: 15, // smallest cluster worth aggregating
   creamCapexPerKwp: 3000, // RM per kWp when one aggregator installs hundreds of roofs at once (placeholder)
   // Battery storage (verify charges against TNB's schedule before quoting)

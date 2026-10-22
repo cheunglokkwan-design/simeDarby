@@ -56,7 +56,8 @@ a { color: inherit; }
   padding: 6px 12px; font-size: 13px; cursor: pointer; white-space: nowrap;
 }
 .btn:hover { border-color: var(--brand); }
-.btn.primary { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 600; }
+.btn.primary { background: var(--brand); border-color: var(--brand); color: var(--text); font-weight: 600; }
+.btn:disabled { opacity: .55; cursor: not-allowed; }
 .btn.icon { padding: 6px 9px; }
 .menu { position: relative; }
 .dropdown {
@@ -289,3 +290,70 @@ input[type='range']::-moz-range-thumb {
 /* Contrast: white on gold failed WCAG (about 2.2:1); dark text on gold passes. */
 .btn.primary, #tour .btn.primary { color: var(--text); }
 #tabs button[aria-selected='true'] span { color: var(--text); }
+
+/* Starting guidance and the local drone-scan workflow. */
+.start-guide { padding-bottom: 18px; margin-bottom: 18px; border-bottom: 1px solid var(--line); }
+#panel .start-guide h2 { font-size: 23px; line-height: 1.2; margin-bottom: 10px; letter-spacing: -.025em; }
+.start-guide .lede { line-height: 1.6; margin-bottom: 14px; }
+.start-button { display: flex; justify-content: space-between; gap: 12px; width: 100%; padding: 10px 12px; }
+.quick-guide { margin-top: 14px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.quick-guide summary { color: var(--text); justify-content: flex-start; gap: 8px; }
+.quick-guide ol { margin: 10px 0; padding-left: 20px; }
+.quick-guide li { margin: 6px 0; }
+.quick-guide p { margin-bottom: 0; }
+.list-heading { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 4px 8px; font-size: 15px; margin: 0 0 6px; }
+.list-heading span { font-size: 12px; font-weight: 400; color: var(--muted); }
+.list-help { margin: 0 0 12px; }
+.scan-form { margin: 16px 0; padding-top: 14px; border-top: 1px solid var(--line); }
+.scan-form label { display: block; color: var(--text); font-size: 12px; font-weight: 600; margin-bottom: 6px; }
+.scan-form label span { color: var(--muted); font-weight: 400; }
+.scan-form input { display: block; width: 100%; min-width: 0; font: inherit; font-size: 13px; padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--text); }
+.scan-form input[type='file'] { padding: 8px; overflow: hidden; }
+.scan-form input::file-selector-button { font: inherit; padding: 5px 7px; margin-right: 6px; border: 0; border-radius: 4px; cursor: pointer; background: var(--surface-2); color: var(--text); }
+.scan-fields { display: grid; gap: 12px; margin: 14px 0; }
+.scan-status { overflow-wrap: anywhere; }
+.scan-status:empty, #saveStatus:empty { display: none; }
+.error { color: #a52b20; }
+.processing-help { padding-top: 12px; }
+.processing-help a { text-underline-offset: 3px; }
+#card .kv td { overflow-wrap: anywhere; max-width: 190px; }
+@media (max-width: 1280px) and (min-width: 761px) {
+  .brand b { font-size: 13px; }
+  #topbar { gap: 8px; }
+  #tabs button { padding-inline: 10px; }
+  .tools { gap: 5px; }
+  #tourBtn { padding-inline: 8px; }
+}
+@media (max-width: 760px) {
+  #panel { height: 46%; }
+  #legend { bottom: calc(46% + 16px); }
+  #sun { display: none; }
+  #tourBtn { display: none; }
+  #topbar .brand { flex: 0 0 auto; }
+  #township { flex: 1; width: 0; }
+  #topbar .brand div { display: none; }
+  #panel .start-guide h2 { font-size: 21px; }
+  #panel .start-guide { padding-bottom: 14px; margin-bottom: 14px; }
+  #impact .metric b { font-size: 14px; }
+  #impact .metric span { font-size: 10px; }
+  #modal { padding: 6px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0s !important; }
+}
+.zone-explainer { background: #eef7fb; padding: 14px; border-radius: 10px; margin: 14px 0 16px; }
+.zone-explainer h3 { margin: 0 0 8px; font-size: 15px; color: #155e86; }
+.zone-explainer p { font-size: 13px; line-height: 1.55; margin: 0 0 10px; }
+.zone-explainer small { display: block; color: #365e73; font-size: 12px; line-height: 1.5; }
+.zone-checks { padding-left: 18px; font-size: 12px; line-height: 1.55; color: var(--muted); }
+.zone-checks li { margin: 6px 0; }
+.drone-start-hint { margin: 12px 0; }
+.card-start { margin: 6px 0 14px; }
+.card-start .btn { white-space: normal; text-align: left; line-height: 1.4; width: 100%; }
+.drone-steps { padding-left: 18px; line-height: 1.6; }
+.processor-note, .job-state { padding: 10px 12px; border-radius: 8px; background: var(--surface-2); color: var(--muted); font-size: 12px; line-height: 1.55; }
+.job-state b { color: var(--text); }
+.scan-form .btn { white-space: normal; margin-bottom: 8px; }
+.layout-preview { margin: 16px 0; }
+.layout-preview h4 { font-size: 16px; margin: 0 0 10px; }
+.layout-preview svg { width: 100%; max-height: 220px; background: #f4f7f5; border-radius: 8px; display: block; }

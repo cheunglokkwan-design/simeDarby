@@ -5,12 +5,15 @@ import { PolygonLayer, SolidPolygonLayer, ScatterplotLayer, ArcLayer, TextLayer 
 
 import { TOWNSHIPS } from './townships.js';
 import { fetchOverpass } from './osm.js';
-import { convexHull } from './geo.js';
+import { convexHull, makeProjector } from './geo.js';
 import { DEFAULT_ASSUMPTIONS, GRID_FLAG, buildSites, scoreSites, summarise, funnel, monthlyPayment, toCSV, toGeoJSON, toKML } from './solar.js';
 import { siteBriefHTML } from './brief.js';
 import { planCream } from './cream.js';
 import { planStorage } from './storage.js';
 import { supabase, loadAssumptionOverrides, saveShortlist } from './supabase.js';
+import { localScanMetadata, saveLocalScan, removeLocalScan, validateSplat } from './scans.js';
+import { panelLayoutForSite } from './panels.js';
+import { VIDEO_EXTENSIONS, droneHealth, uploadDroneVideo, droneJob, downloadDroneScan } from './drone.js';
 
 const $ = (id) => document.getElementById(id);
 const BASE = import.meta.env.BASE_URL; // '/' locally; a sub-path when hosted, e.g. on GitHub Pages
@@ -34,7 +37,11 @@ const state = {
   buyerSet: new Set(),
   yieldData: null,
   storageData: null,
-  scans: {}, // drone scans by OSM id, from public/splats/scans.json
+  scans: {},
+  publishedScans: {},
+  layouts: {},
+  droneProcessor: null,
+  droneJobs: loadPendingJobs(),
   assumptions: { ...DEFAULT_ASSUMPTIONS },
   overrides: {},
   month: 2,
@@ -54,7 +61,7 @@ const power = (kw) => (kw >= 1000 ? `${fmt(kw / 1000, 1)} MW` : `${fmt(kw, 0)} k
 const years = (y) => (Number.isFinite(y) ? `${fmt(y, 1)} yrs` : 'no payback');
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 const label = (s) => s.name || s.categoryLabel;
-const zoneName = (c) => `Zone ${c.id.slice(1)}`;
+const zoneName = (c) => `Zone ${c.number}`;
 const plural = (n, one, many) => `${fmt(n)} ${n === 1 ? one : many}`;
 
 // ---------- map ----------
@@ -96,13 +103,13 @@ map.on('error', (e) => {
 });
 
 // ---------- colours ----------
-const RAMP = [[60, 45, 95], [140, 50, 110], [220, 85, 70], [250, 165, 50], [255, 232, 115]];
+const RAMP = [[12, 105, 105], [0, 153, 123], [40, 201, 142], [104, 231, 159], [191, 255, 163]];
 function ramp(t) {
   t = Math.max(0, Math.min(1, t)) * (RAMP.length - 1);
   const i = Math.min(RAMP.length - 2, Math.floor(t)), f = t - i;
   return RAMP[i].map((c, k) => Math.round(c + (RAMP[i + 1][k] - c) * f));
 }
-const SUN_RAMP = (t) => [Math.round(40 + 215 * t), Math.round(70 + 180 * t), Math.round(150 + 90 * t)];
+const SUN_RAMP = (t) => [Math.round(20 + 171 * t), Math.round(105 + 150 * t), Math.round(140 + 23 * t)];
 const NEUTRAL = [86, 92, 106];
 const TOO_SMALL = [66, 68, 80];
 const ZONE = [43, 159, 220];
@@ -110,7 +117,8 @@ const ZONE_SEL = [125, 205, 250];
 const BUYER = [245, 245, 245];
 const BATTERY = [255, 122, 60];
 const SUBSTATION = [150, 110, 240];
-const SELECTED = [255, 255, 255];
+const SELECTED = [255, 83, 172];
+const CARPARK = [76, 155, 255];
 const rgb = (c) => `rgb(${c.join(',')})`;
 
 function buildingColor(s) {
@@ -118,8 +126,10 @@ function buildingColor(s) {
   if (state.tab === 'find') {
     if (!FILTERS[state.findFilter][1](s)) return NEUTRAL; // outside the chosen filter: dimmed
     if (s.flags.includes('Too small')) return TOO_SMALL;
-    return state.colorBy === 'sun' ? SUN_RAMP(s.shading ?? 1) : ramp(s.score / 85);
+    if (!FILTERS[state.findFilter][1](s)) return NEUTRAL;
+    return state.colorBy === 'sun' ? SUN_RAMP(s.shading ?? 1) : ramp(s.score / 100);
   }
+
   if (state.tab === 'share') {
     const z = state.zoneOf.get(s);
     if (z) return z === state.selectedZone ? ZONE_SEL : ZONE;
@@ -158,7 +168,7 @@ function render() {
   if (!state.raw) return;
   const [s, w, n, e] = TOWNSHIPS[state.township].bbox;
   const pad = 0.01;
-  const trig = [state.tab, state.colorBy, state.findFilter, state.selected?.id, state.selectedZone?.id, state.shadingReady, state.version];
+  const trig = [state.tab, state.colorBy, state.findFilter, state.satellite, state.selected?.id, state.selectedZone?.id, state.shadingReady, state.version];
   const buildings = state.sites.filter((x) => x.category !== 'carpark');
 
   const layers = [
@@ -176,30 +186,50 @@ function render() {
       stroked: state.satellite,
       getPolygon: (d) => d.polygon,
       getElevation: (d) => d.height,
-      getFillColor: (d) => (state.satellite ? [...buildingColor(d), d === state.selected ? 0 : 60] : buildingColor(d)),
-      getLineColor: (d) => (d === state.selected ? [255, 210, 0] : [255, 255, 255, 110]),
+      getFillColor: (d) => (state.satellite ? [...buildingColor(d), d === state.selected ? 145 : 105] : buildingColor(d)),
+      getLineColor: (d) => [...buildingColor(d), 235],
       getLineWidth: (d) => (d === state.selected ? 3 : 1),
       lineWidthUnits: 'pixels',
       material: { ambient: 0.35, diffuse: 0.6, shininess: 24, specularColor: [60, 64, 70] },
       pickable: true,
       autoHighlight: true,
-      highlightColor: [255, 255, 255, 80],
+      highlightColor: [...SELECTED, 130],
       updateTriggers: { getFillColor: [...trig, state.satellite], getLineColor: trig, getLineWidth: trig }
     })
   ];
 
   if (state.tab === 'find') {
+    // A separate unlit roof surface stays legible over satellite imagery and
+    // above the 3D massing, independently of the experimental shadow pass.
+    const [, filter] = FILTERS[state.findFilter];
+    layers.push(new PolygonLayer({
+      id: 'roof-highlights',
+      data: buildings.filter((site) => !site.flags.includes('Too small') && filter(site)),
+      getPolygon: (d) => d.polygon.map(([lon, lat]) => [lon, lat, state.satellite ? 0.5 : d.height + 0.25]),
+      getFillColor: (d) => [...buildingColor(d), state.satellite ? 140 : 210],
+      getLineColor: (d) => [...buildingColor(d), 255],
+      getLineWidth: (d) => d === state.selected ? 3 : 1.5,
+      lineWidthUnits: 'pixels',
+      stroked: true, filled: true, extruded: false,
+      material: false, shadowEnabled: false, parameters: ON_TOP,
+      pickable: true, autoHighlight: true, highlightColor: [...SELECTED, 130],
+      updateTriggers: { getPolygon: [state.satellite], getFillColor: trig, getLineColor: trig, getLineWidth: trig }
+    }));
     layers.push(new PolygonLayer({
       id: 'carparks',
-      data: state.sites.filter((x) => x.category === 'carpark'),
+      data: state.sites.filter((x) => x.category === 'carpark' && filter(x)),
       extruded: !state.satellite,
-      opacity: state.satellite ? 0.4 : 1,
+      stroked: true,
       getPolygon: (d) => d.polygon,
       getElevation: (d) => d.height,
-      getFillColor: (d) => (state.selected === d ? [...SELECTED, 230] : [70, 210, 225, 170]),
+      getFillColor: (d) => [...(state.selected === d ? SELECTED : CARPARK), state.satellite ? 145 : 210],
+      getLineColor: (d) => state.selected === d ? SELECTED : CARPARK,
+      lineWidthMinPixels: 2,
+      material: false, shadowEnabled: false,
       pickable: true,
       autoHighlight: true,
-      updateTriggers: { getFillColor: trig }
+      highlightColor: [...SELECTED, 130],
+      updateTriggers: { getFillColor: trig, getLineColor: trig }
     }));
   }
 
@@ -209,7 +239,7 @@ function render() {
     const zones = state.cream.clusters;
     const labelled = [...zones].sort((x, y) => y.homeCount - x.homeCount).slice(0, 8);
     if (state.selectedZone && !labelled.includes(state.selectedZone)) labelled.push(state.selectedZone);
-    layers.push(
+    layers.splice(1, 0,
       new PolygonLayer({
         id: 'zones',
         data: state.selectedZone ? [state.selectedZone] : [],
@@ -221,7 +251,9 @@ function render() {
         lineWidthMinPixels: 2,
         pickable: true,
         updateTriggers: { getFillColor: trig, getLineColor: trig }
-      }),
+      })
+    );
+    layers.push(
       new TextLayer({
         ...textDefaults,
         id: 'zone-labels',
@@ -229,6 +261,7 @@ function render() {
         getPosition: (c) => [...c.position, 30],
         getText: (c) => `${zoneName(c)} · ${fmt(c.homeCount)} homes`,
         getBackgroundColor: (c) => (c === state.selectedZone ? [21, 94, 134, 240] : [21, 70, 100, 210]),
+        pickable: true,
         updateTriggers: { getBackgroundColor: trig }
       })
     );
@@ -299,6 +332,18 @@ function render() {
     );
   }
 
+  const layout = state.selected && (state.layouts[state.selected.id] || state.scans[state.selected.id]?.layout);
+  if (layout?.panels?.length && state.tab === 'find') {
+    const projection = makeProjector(...state.origin);
+    const [cx, cy] = state.selected.centroid;
+    const height = state.satellite ? .8 : state.selected.height + .5;
+    layers.push(new PolygonLayer({
+      id: 'solar-panel-layout', data: layout.panels,
+      getPolygon: (panel) => panel.map(([x, y]) => [...projection.toLonLat([x + cx, y + cy]), height]),
+      getFillColor: [24, 48, 91, 245], getLineColor: [174, 219, 255, 255],
+      stroked: true, lineWidthMinPixels: .7, material: false, shadowEnabled: false, parameters: ON_TOP
+    }));
+  }
   overlay.setProps({ layers, effects: [lightingEffect()], onClick });
 }
 
@@ -306,12 +351,14 @@ function getTooltip({ object, layer }) {
   if (!object || !layer) return null;
   switch (layer.id) {
     case 'zones':
+    case 'zone-labels':
       return { text: `${zoneName(object)}: community solar\n${fmt(object.homeCount)} homes · ${power(object.kwp)} of solar\nClick for details` };
     case 'batteries':
       return { text: `${label(object.site)}\n${power(object.kw)} battery · cuts peak by ${power(object.peakCutKw)}\nSaves ${rm(object.value)}/yr` };
     case 'substations':
       return { text: `Electricity substation\n${object.name || 'unnamed'}` };
     case 'buildings':
+    case 'roof-highlights':
     case 'carparks': {
       const s = object;
       if (state.tab === 'share') {
@@ -334,9 +381,9 @@ function getTooltip({ object, layer }) {
 
 function onClick({ object, layer }) {
   if (!object || !layer) return;
-  if (layer.id === 'zones') return selectZone(object, false);
+  if (layer.id === 'zones' || layer.id === 'zone-labels') return selectZone(object, false);
   if (layer.id === 'batteries') return select(object.site, false);
-  if (layer.id === 'buildings' || layer.id === 'carparks') {
+  if (layer.id === 'buildings' || layer.id === 'roof-highlights' || layer.id === 'carparks') {
     if (object.flags.includes('Too small')) return;
     // Share tab: a home opens its "your house" card and keeps its zone highlighted.
     if (state.tab === 'share' && state.zoneOf.get(object)) return select(object, false, state.zoneOf.get(object));
@@ -381,9 +428,9 @@ function renderImpact() {
   $('impact').innerHTML = `
     <div class="metric funnel" title="${fmt(f.all / 1000)} MWp on all viable roofs → ${fmt(f.noApproval / 1000)} MWp needing no special approval → ${fmt(f.fast / 1000)} MWp paying back within ${a.paybackTarget} years">
       <b>${fmt(f.fast / 1000)} MWp</b><span>ready to build: pays back ≤ ${a.paybackTarget} yrs, no special approval <span class="steps">(of ${fmt(f.all / 1000)} MWp possible)</span></span></div>
-    <div class="metric"><b>${fmt(k.kwh / 1e6, 0)} GWh</b><span>clean power / yr</span></div>
-    <div class="metric hero"><b>${fmt(k.co2 / 1000, 0)} kt CO₂</b><span>avoided / yr</span></div>
-    <div class="metric"><b>${rm(k.savings)}</b><span>bill savings / yr</span></div>`;
+    <div class="metric" title="Estimated annual electricity generated by the qualifying roofs"><b>${fmt(k.kwh / 1e6, 0)} GWh</b><span>clean power / yr</span></div>
+    <div class="metric hero" title="Estimated annual carbon emissions avoided by the qualifying roofs"><b>${fmt(k.co2 / 1000, 0)} kt CO₂</b><span>avoided / yr</span></div>
+    <div class="metric" title="Estimated annual bill savings for the qualifying roofs"><b>${rm(k.savings)}</b><span>bill savings / yr</span></div>`;
 }
 
 // ---------- tab panels ----------
@@ -407,8 +454,18 @@ function findPanel() {
   const list = state.ranked.filter(test).slice(0, 10);
   const viable = state.ranked.length;
   return `
-    <h2>Best rooftops &amp; car parks</h2>
-    <p class="lede">Every roof in ${esc(TOWNSHIPS[state.township].name)} scored on sun, size, how much power the building uses itself, and payback. ${fmt(viable)} roofs and car parks are big enough for solar.</p>
+    <div class="start-guide">
+      <h2>Where should solar go?</h2>
+      <p class="lede">Find promising roofs in ${esc(TOWNSHIPS[state.township].name)}. Compare installation costs, yearly savings and how long solar takes to pay for itself.</p>
+      <button class="btn primary start-button" data-start ${list.length ? '' : 'disabled'}>Explore the best ${state.findFilter === 'carparks' ? 'car park' : 'roof'} <span aria-hidden="true">→</span></button>
+      <p class="note drone-start-hint">Have drone footage? Select its building, then choose <b>Drone footage &amp; solar layout</b>.</p>
+      <details class="quick-guide"><summary>How to use this map</summary>
+        <ol><li>Choose a township at the top.</li><li>Select the building shown in your drone footage.</li><li>Open Drone footage &amp; solar layout to upload video or preview a panel layout.</li></ol>
+        <p>Use Community solar to explore shared power, or Battery storage to compare storage sites.</p>
+      </details>
+    </div>
+    <h3 class="list-heading">Top opportunities <span>${fmt(viable)} eligible sites</span></h3>
+    <p class="note list-help">Higher scores mean a better solar opportunity. Select a site to see why.</p>
     <div class="chips" role="group" aria-label="Filter">${Object.entries(FILTERS)
       .map(([k, [name]]) => `<button class="chip" data-filter="${k}" aria-pressed="${k === state.findFilter}">${name}</button>`).join('')}</div>
     <ol class="list" data-list="sites">${list.map((s) => `
@@ -417,6 +474,7 @@ function findPanel() {
         <span class="pill" title="Opportunity score out of 100">${fmt(s.score)}</span>
       </li>`).join('')}</ol>
     <details class="more"><summary>More detail</summary><div class="body">
+      <p><b>Township totals above:</b> estimated potential for roofs needing no special approval and paying back within ${state.assumptions.paybackTarget} years. Figures are screening estimates, not installer quotes.</p>
       <p><b>Colour roofs by</b></p>
       <div class="seg seg-inline" role="group">
         <button data-color="score" aria-pressed="${state.colorBy === 'score'}">Opportunity</button>
@@ -435,24 +493,33 @@ function sharePanel() {
   const invest = clusters.reduce((s, c) => s + c.capex, 0);
   return `
     <h2>Community solar in SDP's own townships</h2>
-    <p class="lede">SDP builds the homes, so it can make them solar homes: bundled into the mortgage for new buyers, or, for homes already sold, leased under CREAM with the power sold to businesses nearby over TNB's network. Click a zone, or any blue home, to see what one household gets.</p>
+    <p class="lede">SDP builds the homes, so it can make them solar homes: bundled into the mortgage for new buyers, or, for homes already sold, leased under CREAM with the power sold to businesses nearby over TNB's network.</p>
+    <section class="zone-explainer" aria-labelledby="zone-help-title">
+      <h3 id="zone-help-title">What is a zone?</h3>
+      <p>A blue zone groups nearby home roofs into one possible community-solar project. Homeowners could earn roof rent; nearby buyers could purchase the power.</p>
+      <p><b>Select a zone label</b> for the group, or a blue roof for one home's options.</p>
+      <small>Proposed groups, not approved boundaries. Roof ownership and grid connections still need checking.</small>
+    </section>
     <div class="stats">
-      <div class="stat"><b>${fmt(t.homes)}</b><span>homes in ${t.clusters} zones</span></div>
-      <div class="stat"><b>${rm(t.leaseIncome)}</b><span>to homeowners / yr</span></div>
+      <div class="stat"><b>${fmt(t.homes)}</b><span>estimated homes · ${t.clusters} groups</span></div>
+      <div class="stat"><b>${rm(t.leaseIncome)}</b><span>potential roof rent / yr</span></div>
       <div class="stat"><b>${years(margin > 0 ? invest / margin : Infinity)}</b><span>CREAM payback on ${rm(invest)}</span></div>
     </div>
     ${clusters.length ? `<ol class="list" data-list="zones">${clusters.slice(0, 10).map((c) => `
       <li tabindex="0" role="button" data-zone="${c.id}" class="${state.selectedZone === c ? 'sel' : ''}">
-        <div><div class="t">${zoneName(c)} · ${fmt(c.homeCount)} homes</div><div class="m">${power(c.kwp)} · sells to ${plural(c.buyers.length, "business", "businesses")} nearby</div></div>
+        <div><div class="t">${zoneName(c)} · ~${fmt(c.homeCount)} homes</div><div class="m">${plural(c.buyers.length, 'potential buyer', 'potential buyers')} · ${fmt(c.kwh ? c.matchedKwh / c.kwh * 100 : 0)}% output matched</div></div>
         <span class="pill zone">${power(c.kwp)}</span>
       </li>`).join('')}</ol>` : '<p class="empty">No housing estates large enough for a community-solar zone here.</p>'}
     <details class="more"><summary>More detail</summary><div class="body">
       <p><b>Affordable housing:</b> ${affordable.length
         ? `${affordable.length} affordable block(s) can earn ${rm(affordable.reduce((s, x) => s + x.leaseIncome, 0))}/yr in roof leases.`
         : 'no affordable-housing blocks are named in OpenStreetMap for this township. Known blocks can be added to the list in <code>src/affordable.js</code>.'}</p>
-      <p><b>How a zone is formed:</b> landed homes grouped into ~550 m areas of at least ${state.assumptions.creamMinHomes} homes. Their power goes to businesses within ${state.assumptions.creamRadiusKm} km, using only the daytime demand those businesses can't cover from their own roofs.</p>
-      <p><b>The money:</b> buyers pay ${fmt(state.assumptions.creamDiscount * 100)}% below their grid tariff; SDP (as aggregator) pays TNB's ${fmt(state.assumptions.accessCharge * 100)} sen/kWh access charge and RM ${fmt(perHome)}/yr per roof to each homeowner (placeholder lease). The SDP margin is after those costs, before paying back the panels.</p>
-      <p><b>Still to confirm:</b> the SDP and GSPARX Elmina pilot details, and a real lease rate.</p>
+      <p><b>Grouping:</b> a roughly 550 m grid groups inferred home roofs, with at least ${state.assumptions.creamMinHomes} estimated homes per group. Boundaries may cross roads or estates and are not cadastral or feeder boundaries. Home counts can be estimated from terrace-row footprint area.</p>
+      <p><b>Buyer matching:</b> a ${state.assumptions.creamRadiusKm} km straight-line search from each group centre screens potential buyers. Actual CREAM distance is between connecting utility substations, which this dataset does not establish. Lines show possible energy matches, not cable routes.</p>
+      <p><b>Capacity:</b> CREAM plant and cumulative feeder limits require confirmed electrical connections. The model flags groups below 100 kWp or above 2 MWp; it cannot approve feeder capacity.</p>
+      <p><b>The money:</b> buyers pay an assumed ${fmt(state.assumptions.creamDiscount * 100)}% below their category's tariff. Model costs include ${fmt(state.assumptions.accessCharge * 100)} sen/kWh access on matched power and RM ${fmt(perHome)}/yr rent per estimated home. Unmatched generation earns no assumed revenue. Annual matching does not establish hourly supply or settlement.</p>
+      <p><b>Combined scenario:</b> ${years(margin > 0 ? invest / margin : Infinity)} payback on ${rm(invest)}. Ownership, landed-house eligibility, metering, power-system studies and contracts remain unverified.</p>
+      <a href="https://www.st.gov.my/contents/2025/CREAM/CREAM%20FAQ_1%20_V2.pdf" target="_blank" rel="noopener">Energy Commission CREAM guidance</a>
     </div></details>`;
 }
 
@@ -495,8 +562,14 @@ function storePanel() {
 }
 
 $('panel').addEventListener('click', (e) => {
+  if (e.target.closest('[data-start]')) {
+    const [, test] = FILTERS[state.findFilter];
+    const first = state.ranked.find(test);
+    if (first) select(first, true);
+    return;
+  }
   const chip = e.target.closest('[data-filter]');
-  if (chip) { state.findFilter = chip.dataset.filter; return renderPanel(); }
+  if (chip) { state.findFilter = chip.dataset.filter; renderPanel(); return render(); }
   const color = e.target.closest('[data-color]');
   if (color) { state.colorBy = color.dataset.color; renderPanel(); renderLegend(); return render(); }
   const li = e.target.closest('li');
@@ -551,6 +624,7 @@ function houseCard(s) {
     <button class="x" data-act="close" aria-label="Close">×</button>
     <h3>Your house: solar options</h3>
     <div class="sub">${esc(s.categoryLabel)}${n > 1 ? ` · one of ${n} homes in this row` : ''} · ${esc(TOWNSHIPS[state.township].name)}${zone ? ` · ${zoneName(zone)}` : ''}</div>
+    <div class="actions card-start"><button class="btn primary" data-act="add-scan">Create solar layout from drone footage</button></div>
     <p class="lede" style="margin:6px 0 10px">A ${fmt(kwp, 1)} kW system (${fmt((kwp * 1000) / a.panelWatt)} panels) makes about <b>${fmt(kwhMonth)} kWh a month</b>, sized to a home using ${fmt(a.homeKwhMonth)} kWh.</p>
     <div class="options">
       <div class="opt"><h4>Buy outright</h4>
@@ -572,9 +646,12 @@ function houseCard(s) {
     <details><summary>Assumptions</summary><div class="body">
       <p>Household use ${fmt(a.homeKwhMonth)} kWh/month, home tariff ${fmt(a.tariffResidential * 100)} sen/kWh, ${fmt(a.capexSmall)} RM/kWp installed, exports paid at ATAP SMP ${fmt(a.exportSMP * 100)} sen/kWh${a.exportCreditCap ? ' and capped at the bill' : ''}, lease RM ${fmt(a.leasePerRoof)}/yr. All editable in ⚙ Settings; check against real TNB bills and installer quotes.</p>
     </div></details>
+    ${droneSection(s, state.scans[s.id])}
     <div class="actions">
       <button class="btn primary" data-act="quotes">Request installer quotes</button>
       <button class="btn" data-act="sat">Satellite view</button>
+      <button class="btn" data-act="add-scan">Drone footage &amp; solar layout</button>
+      ${state.scans[s.id] ? '<button class="btn" data-act="scan">View 3D scan</button>' : ''}
     </div>`;
 }
 
@@ -588,7 +665,8 @@ function siteCard(s) {
     <button class="x" data-act="close" aria-label="Close">×</button>
     <h3>${esc(label(s))}</h3>
     <div class="sub">${esc(s.categoryLabel)} · ${esc(TOWNSHIPS[state.township].name)}</div>
-    ${fitBadge(s)}${scan ? '<span class="badge info">Drone-verified</span>' : ''}${s.affordable ? '<span class="badge info">Affordable housing</span>' : ''}${s.gridDistM != null && s.gridDistM > a.gridMaxM ? '<span class="badge weak" title="OSM substation coverage is incomplete">Substation not mapped nearby</span>' : ''}
+    ${fitBadge(s)}${scan ? `<span class="badge info">${scan.reviewed ? 'Scan reviewed' : 'Scan available'}</span>` : ''}${s.affordable ? '<span class="badge info">Affordable housing</span>' : ''}${s.gridDistM != null && s.gridDistM > a.gridMaxM ? '<span class="badge weak" title="OSM substation coverage is incomplete">Substation not mapped nearby</span>' : ''}
+    <div class="actions card-start"><button class="btn primary" data-act="add-scan">Create solar layout from drone footage</button></div>
     <div class="big4">
       <div><b>${power(s.kwp)}</b><span>system size · ${fmt(panels)} panels</span></div>
       <div><b>${rm(s.savings)}</b><span>saved per year</span></div>
@@ -635,7 +713,8 @@ function siteCard(s) {
       <button class="btn primary" data-act="brief">Site brief (PDF)</button>
       <button class="btn" data-act="quotes">Request quotes</button>
       <button class="btn" data-act="sat">Satellite view</button>
-      ${scan ? '<button class="btn" data-act="scan">View drone scan (3D)</button>' : ''}
+      <button class="btn" data-act="add-scan">Drone footage &amp; solar layout</button>
+      ${scan ? '<button class="btn" data-act="scan">View 3D scan</button>' : ''}
     </div>`;
 }
 
@@ -645,21 +724,46 @@ const FINDING_LABELS = {
   condition: 'Roof condition', heightCheck: 'Height vs our estimate', areaCheck: 'Usable area vs our estimate', notes: 'Notes'
 };
 function droneSection(s, scan) {
-  if (scan) {
-    const f = scan.findings || {};
-    const rows = Object.entries(FINDING_LABELS).filter(([k]) => f[k] != null && f[k] !== '').map(([k, l]) => [l, esc(String(f[k]))]);
-    return `<details open><summary>Drone check</summary>${kv([
-      ['Scanned', esc([scan.captured, scan.source].filter(Boolean).join(' · ') || 'yes')],
-      ...(rows.length ? rows : [['Findings', 'not recorded yet: use the viewer\'s Findings tab']])
-    ])}</details>`;
-  }
-  if (!BUSINESS.has(s.category)) return '';
-  const rank = state.ranked.indexOf(s) + 1;
-  const near = TOWNSHIPS[state.township].nearAirport;
-  return `<details><summary>Drone check</summary><div class="body">
-    <p>${rank > 0 && rank <= 20 ? `<b>On the shortlist (#${rank}).</b> ` : ''}A 10-minute drone flight would confirm what this estimate assumes: roof pitch and height, water tanks and AC units, existing panels, and roof condition. The same photos give a measured 3D model (photogrammetry) and a 3D scan to show the owner.</p>
-    <p><b>Before flying:</b> get the building owner's permission${near ? `, and a CAAM permit: ${esc(TOWNSHIPS[state.township].name)} is next to ${esc(near)}` : ' and check CAAM rules for the area'}.</p>
+  const f = scan?.findings || {};
+  const rows = Object.entries(FINDING_LABELS).filter(([k]) => f[k]).map(([k, l]) => [l, esc(f[k])]);
+  const job = state.droneJobs[s.id];
+  const busy = job && !['failed', 'connection_lost'].includes(job.stage);
+  const layout = state.layouts[s.id] || scan?.layout;
+  return `<details id="drone-check" ${scan || job || layout ? 'open' : ''}><summary>Drone footage &amp; solar layout</summary><div class="body">
+    <p>Upload footage of <b>${esc(label(s))}</b> to create an explorable 3D scan and a draft solar-panel layout.</p>
+    <ol class="drone-steps"><li>Upload a steady orbit of this building.</li><li>The GPU worker reconstructs the scene.</li><li>Review the panels and roof together in 3D.</li></ol>
+    ${job ? `<p class="job-state" role="status"><b>${esc(({ queued: 'Queued', camera_alignment: 'Reconstructing cameras', training: 'Building 3D scan', exporting: 'Preparing result', failed: 'Processing failed', connection_lost: 'Connection interrupted', downloading: 'Saving result' })[job.stage] || 'Processing')}</b><br>${esc(job.message || '')}</p>${job.stage === 'connection_lost' ? '<button class="btn" data-act="retry-job" type="button">Check job again</button>' : ''}` : ''}
+    ${scan ? `<p><b>${scan.reviewed ? 'Scan reviewed' : 'Scan available · awaiting review'}</b></p>${kv([
+      ['Captured', esc([scan.captured, scan.source].filter(Boolean).join(' · ') || 'Not recorded')],
+      ...(scan.filename ? [['File', esc(scan.filename)]] : []),
+      ...rows
+    ])}<p>${scan.local ? 'Saved in this browser on this device.' : 'Published scan.'} Open the 3D viewer to align the roof and record findings.</p>
+    ${scan.local ? '<button class="btn" type="button" data-act="remove-scan">Remove local scan</button>' : ''}` : '<p>Inspect rooftop equipment and compare our predicted roof outline with a 3D drone capture.</p>'}
+    <form id="scan-import" class="scan-form">
+      <label for="scan-file">Drone footage or finished 3D scan</label>
+      <input id="scan-file" name="file" type="file" accept=".mp4,.mov,.m4v,.webm,.ply,.splat,.ksplat" required aria-describedby="scan-file-help" ${busy ? 'disabled' : ''} />
+      <p id="scan-file-help" class="note">Video: MP4, MOV, M4V or WebM · up to 1 GB and 10 minutes. Finished scan: PLY, SPLAT or KSPLAT · up to 200 MB.</p>
+      ${!state.droneProcessor?.ready ? '<p class="processor-note">Video processing needs a ready GPU worker. You can import a finished scan or preview a draft layout below while hosting is being configured.</p>' : '<p class="processor-note">Video is sent to your configured GPU worker for processing. Finished scans and reviews are saved in this browser.</p>'}
+      <div class="scan-fields"><div><label for="scan-date">Capture date <span>(optional)</span></label><input id="scan-date" name="captured" type="date" /></div>
+      <div><label for="scan-source">Source <span>(optional)</span></label><input id="scan-source" name="source" type="text" maxlength="160" placeholder="e.g. DJI Mini 4 Pro" /></div></div>
+      <button class="btn primary" type="submit" ${busy ? 'disabled' : ''}>Create 3D scan &amp; layout</button>
+      <button class="btn" type="button" data-act="layout">${layout ? 'Regenerate' : 'Preview'} draft panel layout</button>
+      <p class="scan-status note" id="scan-status" role="status" aria-live="polite"></p>
+    </form>
+    ${layout ? layoutPreview(s, layout) : ''}
+    <details class="processing-help"><summary>Capture tips &amp; layout assumptions</summary><p>Record sharp, steady footage around the roof from several overlapping angles. Keep the roof in view and avoid sudden exposure changes.</p><p>The draft layout uses the mapped roof boundary, a 0.6 m edge setback and assumed 1.134 × 2.278 m panels. It does not automatically detect roof pitch, obstacles, access routes or structural limits. Confirm dimensions and obstructions against the scan and a measured survey before installation.</p></details>
   </div></details>`;
+}
+
+function layoutPreview(s, layout) {
+  const ring = scanPayload(s).footprint;
+  const xs = ring.map(p => p[0]), ys = ring.map(p => -p[1]);
+  const x = Math.min(...xs), y = Math.min(...ys), width = Math.max(...xs) - x, height = Math.max(...ys) - y;
+  const points = (polygon) => polygon.map(([px, py]) => `${px},${-py}`).join(' ');
+  return `<section class="layout-preview" aria-label="Draft solar panel layout"><h4>${layout.count} panels · ${fmt(layout.kwp, 1)} kWp</h4>
+    <svg viewBox="${x - 2} ${y - 2} ${width + 4} ${height + 4}" role="img" aria-label="Proposed panels inside the mapped roof footprint"><polygon points="${points(ring)}" fill="#eaf1ef" stroke="#68847c" stroke-width=".25" />${layout.panels.map((panel) => `<polygon points="${points(panel)}" fill="#18305b" stroke="#b0dbff" stroke-width=".08" />`).join('')}</svg>
+    <p class="note">Draft based on the mapped footprint. ${layout.count ? 'Check roof planes, scale, obstacles and access before accepting this layout.' : 'No panels fit within the current boundary, setback and capacity assumptions.'}</p>
+    <button class="btn" type="button" data-act="export-layout">Download layout (JSON)</button></section>`;
 }
 
 function scanPayload(s) {
@@ -669,17 +773,85 @@ function scanPayload(s) {
     footprint: s.xy.map(([x, y]) => [x - cx, y - cy]),
     height: s.height, heightSource: s.heightSource, area: s.area, usable: s.usable,
     kwp: s.kwp, panels: Math.floor((s.kwp * 1000) / state.assumptions.panelWatt),
-    flags: s.flags, scan: state.scans[s.id]
+    flags: s.flags, scan: state.scans[s.id], layout: state.layouts[s.id] || state.scans[s.id]?.layout
   };
 }
+let scanSite = null;
 function openScan(s) {
-  state.pendingScan = scanPayload(s);
+  scanSite = s;
   openModal(`Drone scan: ${label(s)}`, { src: `${BASE}splat.html?site=${encodeURIComponent(s.id)}` });
 }
-// The viewer asks for its site once it has loaded, so there is no race with page load.
-window.addEventListener('message', (e) => {
-  if (e.origin !== location.origin || e.source !== $('modalFrame').contentWindow || e.data?.type !== 'ready') return;
-  e.source.postMessage({ type: 'site', site: state.pendingScan }, location.origin);
+
+async function refreshScans() {
+  state.scans = { ...state.publishedScans, ...await localScanMetadata() };
+}
+
+function loadPendingJobs() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('solar-drone-jobs') || '{}');
+    return saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
+  }
+  catch { return {}; }
+}
+function persistJobs() {
+  try { localStorage.setItem('solar-drone-jobs', JSON.stringify(state.droneJobs)); }
+  catch { setStatus('Processing can continue, but this browser could not save job tracking. Keep the page open.'); }
+}
+const watchedJobs = new Set();
+async function watchDroneJob(siteId) {
+  if (watchedJobs.has(siteId) || !state.droneJobs[siteId]) return;
+  watchedJobs.add(siteId);
+  const pending = state.droneJobs[siteId];
+  let failures = 0;
+  const check = async () => {
+    let retry = false;
+    try {
+      const job = await droneJob(pending.id);
+      failures = 0;
+      if (job.siteId !== siteId) throw new Error('The processor returned a result for another building.');
+      state.droneJobs[siteId] = { ...pending, ...job };
+      persistJobs();
+      if (job.stage === 'complete') {
+        state.droneJobs[siteId].stage = 'downloading';
+        const file = await downloadDroneScan(job.id);
+        await validateSplat(file);
+        const s = state.sites.find((site) => site.id === siteId);
+        const layout = s ? panelLayoutForSite(scanPayload(s), state.assumptions.panelWatt) : pending.siteMetrics ? panelLayoutForSite(pending.siteMetrics) : undefined;
+        await saveLocalScan({ id: siteId, file, filename: file.name, format: 'ply', title: s ? label(s) : 'Drone scan',
+          source: pending.source || 'Drone footage · Nerfstudio', captured: pending.captured || '',
+          cameraUp: job.cameraUp || [0, 0, 1], overlay: { position: [0, 0, 0], rotation: [90, 0, 0], scale: 1 },
+          reviewed: false, layout, siteMetrics: pending.siteMetrics });
+        if (layout) state.layouts[siteId] = layout;
+        delete state.droneJobs[siteId];
+        persistJobs();
+        await refreshScans();
+        if (state.selected?.id === siteId) { renderCard(); render(); openScan(state.selected); }
+      } else if (job.stage !== 'failed') retry = true;
+      if (state.selected?.id === siteId) renderCard();
+    } catch (err) {
+      failures++;
+      retry = failures < 3;
+      if (!retry) {
+        state.droneJobs[siteId] = { ...pending, stage: 'connection_lost', message: `${err.message} Check the job again to resume.` };
+        persistJobs();
+        if (state.selected?.id === siteId) renderCard();
+      }
+    } finally {
+      if (retry) setTimeout(check, 5000);
+      else watchedJobs.delete(siteId);
+    }
+  };
+  await check();
+}
+window.addEventListener('message', async (e) => {
+  if (e.origin !== location.origin || e.source !== $('modalFrame').contentWindow) return;
+  if (e.data?.type === 'scan-ready' && scanSite) {
+    e.source.postMessage({ type: 'site', site: scanPayload(scanSite) }, location.origin);
+  }
+  if (e.data?.type === 'scan-saved') {
+    try { await refreshScans(); renderCard(); }
+    catch (err) { setStatus(err.message); }
+  }
 });
 
 function zoneCard(c) {
@@ -689,14 +861,16 @@ function zoneCard(c) {
     <button class="x" data-act="close" aria-label="Close">×</button>
     <h3>${zoneName(c)}: community solar</h3>
     <div class="sub">${fmt(c.homeCount)} landed homes · ${esc(TOWNSHIPS[state.township].name)}</div>
-    <span class="badge good">Buyers within ${a.creamRadiusKm} km</span>
+    <span class="badge review">Proposed zone · grid checks pending</span>
+    <p class="note">This outline groups nearby roofs for exploration. It does not confirm ownership, planning approval or a shared electricity feeder.</p>
     <div class="big4">
       <div><b>${power(c.kwp)}</b><span>rooftop solar</span></div>
       <div><b>${rm(c.leaseCost)}</b><span>to homeowners / yr</span></div>
-      <div><b>${fmt(sold * 100)}%</b><span>sold to local businesses</span></div>
-      <div><b>${fmt(c.co2, 0)} t</b><span>CO₂ avoided per year</span></div>
+      <div><b>${fmt(sold * 100)}%</b><span>output matched to potential buyers</span></div>
+      <div><b>${fmt(c.co2, 0)} t</b><span>potential CO₂ avoided / year</span></div>
     </div>
-    <details open><summary>Who buys the power</summary>${kv(c.buyers.slice(0, 6).map((b) => [esc(label(b.site)), `${fmt(b.kwh / 1000)} MWh/yr · ${fmt(b.dist / 1000, 1)} km`]))}</details>
+    <details open><summary>Potential buyers (${c.buyers.length})</summary>${c.buyers.length ? kv(c.buyers.map((b) => [esc(label(b.site)), `${fmt(b.kwh / 1000)} MWh/yr · ${fmt(b.dist / 1000, 1)} km`])) : '<p class="note">No buyer demand matched. This group has no modelled sales revenue.</p>'}<p class="note">Distances are from the group centre, not confirmed utility substations. ${fmt(c.unmatchedKwh / 1000)} MWh/yr remains unmatched.</p></details>
+    <details open><summary>Checks before proceeding</summary><ul class="zone-checks">${c.checks.map((check) => `<li>${esc(check)}</li>`).join('')}</ul></details>
     <details><summary>Money</summary>${kv([
       ['Energy sales (incl. surplus to grid)', rm(c.revenue)],
       ['Operation & maintenance', rm(c.om)],
@@ -709,14 +883,85 @@ function zoneCard(c) {
 }
 
 function bindCard() {
+  const form = $('scan-import');
+  if (form) form.onsubmit = async (e) => {
+    e.preventDefault();
+    const site = state.selected;
+    const button = form.querySelector('[type="submit"]');
+    const status = form.querySelector('#scan-status');
+    button.disabled = true;
+    status.textContent = 'Checking and saving scan…';
+    status.classList.remove('error');
+    try {
+      const file = form.elements.file.files[0];
+      const extension = file?.name.split('.').pop().toLowerCase();
+      if (VIDEO_EXTENSIONS.includes(extension)) {
+        if (!file.size || file.size > 1024 ** 3) throw new Error('Choose a non-empty drone video under 1 GB.');
+        const health = await droneHealth();
+        state.droneProcessor = health;
+        if (!health.ready) throw new Error(health.message);
+        status.textContent = 'Uploading footage…';
+        const job = await uploadDroneVideo(file, site.id, (progress) => { status.textContent = `Uploading footage… ${progress}%`; });
+        const { scan: previousScan, ...siteMetrics } = scanPayload(site);
+        state.droneJobs[site.id] = { ...job, captured: form.elements.captured.value, source: form.elements.source.value.trim(), siteMetrics };
+        persistJobs();
+        renderCard();
+        watchDroneJob(site.id);
+        return;
+      }
+      const format = await validateSplat(file);
+      const layout = panelLayoutForSite(scanPayload(site), state.assumptions.panelWatt);
+      await saveLocalScan({ id: site.id, file, filename: file.name, format, title: label(site),
+        captured: form.elements.captured.value, source: form.elements.source.value.trim(), reviewed: false,
+        cameraUp: [0, 1, 0], layout, siteMetrics: { ...scanPayload(site), scan: undefined } });
+      state.layouts[site.id] = layout;
+      await refreshScans();
+      renderCard();
+      openScan(site);
+    } catch (err) {
+      status.textContent = err.message;
+      status.classList.add('error');
+    } finally { button.disabled = false; }
+  };
   $('card').querySelectorAll('[data-act]').forEach((btn) => {
-    btn.onclick = () => {
+    btn.onclick = async () => {
       const act = btn.dataset.act;
       if (act === 'close') return clearSelection();
       if (act === 'brief') return openBrief(state.selected);
       if (act === 'sat') { setBasemap(true); return map.flyTo({ center: state.selected.position, zoom: 17.6, pitch: 0, bearing: 0, duration: 1400 }); }
       if (act === 'sat-zone') { setBasemap(true); return map.flyTo({ center: state.selectedZone.position, zoom: 16.2, pitch: 0, bearing: 0, duration: 1400 }); }
       if (act === 'scan') return openScan(state.selected);
+      if (act === 'layout') {
+        const s = state.selected;
+        const layout = panelLayoutForSite(scanPayload(s), state.assumptions.panelWatt);
+        state.layouts[s.id] = layout;
+        renderCard(); render();
+        $('drone-check').open = true;
+        $('card').querySelector('.layout-preview')?.scrollIntoView({ block: 'nearest' });
+        return;
+      }
+      if (act === 'export-layout') {
+        const s = state.selected;
+        const data = { siteId: s.id, ...scanPayload(s).layout, origin: s.position,
+          coordinateSystem: 'Local metres, x east, y north, origin at mapped roof centroid', height: s.height };
+        const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+        const a = document.createElement('a'); a.href = url; a.download = `${s.id.replace('/', '-')}-draft-panels.json`; a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        return;
+      }
+      if (act === 'retry-job') { watchDroneJob(state.selected.id); return; }
+      if (act === 'add-scan') {
+        $('drone-check').open = true;
+        $('drone-check').scrollIntoView({ block: 'start', behavior: 'smooth' });
+        $('scan-file').focus({ preventScroll: true });
+        return;
+      }
+      if (act === 'remove-scan') {
+        btn.disabled = true;
+        try { await removeLocalScan(state.selected.id); delete state.layouts[state.selected.id]; await refreshScans(); renderCard(); render(); }
+        catch (err) { $('scan-status').textContent = err.message; btn.disabled = false; }
+        return;
+      }
       if (act === 'quotes') return openBrief(state.selected, true);
       if (act === 'home') {
         const z = state.selectedZone;
@@ -741,8 +986,8 @@ function openModal(title, { src, html }) {
   $('modal').hidden = false;
 }
 function closeModal() {
+  scanSite = null;
   $('modal').hidden = true;
-  state.pendingScan = null;
   $('modalFrame').src = 'about:blank';
 }
 $('modalClose').onclick = closeModal;
@@ -769,9 +1014,9 @@ function renderLegend() {
     html = state.colorBy === 'sun'
       ? `<b>Sun exposure</b><div class="bar" style="background:linear-gradient(90deg,${[0, 0.5, 1].map((t) => rgb(SUN_RAMP(t))).join(',')})"></div><div class="ends"><span>Shaded</span><span>Full sun</span></div>`
       : `<b>Solar opportunity</b><div class="bar" style="background:linear-gradient(90deg,${RAMP.map(rgb).join(',')})"></div><div class="ends"><span>Weaker roof</span><span>Best roof</span></div>`;
-    html += sw([70, 210, 225], 'Car park (solar canopy)') + sw(TOO_SMALL, 'Too small for solar');
+    html += sw(RAMP[3], 'Highlighted rooftop') + sw(CARPARK, 'Car park (solar canopy)') + sw(SELECTED, 'Selected site') + sw(TOO_SMALL, 'Too small for solar');
   } else if (state.tab === 'share') {
-    html = '<b>Community solar</b>' + sw(ZONE, 'Homes in a solar zone') + sw(BUYER, 'Business buying the power (selected zone)') + sw(NEUTRAL, 'Other buildings');
+    html = '<b>Proposed solar groups</b>' + sw(ZONE, 'Home roofs in a proposed zone') + sw(BUYER, 'Potential buyer (selected zone)') + sw(SELECTED, 'Selected roof') + sw(NEUTRAL, 'Other buildings');
   } else {
     html = '<b>Battery storage</b>' + sw(BATTERY, 'Recommended battery site', true) + sw(SUBSTATION, 'Electricity substation', true) + sw(NEUTRAL, 'Other buildings');
   }
@@ -828,7 +1073,7 @@ const SETTINGS = [
   }],
   ['Community solar (CREAM)', {
     accessCharge: 'TNB access charge (RM/kWh)', creamDiscount: 'Buyer discount (share)', leasePerRoof: 'Lease per home (RM/yr)',
-    creamRadiusKm: 'Buyer radius (km)', creamMinHomes: 'Homes per zone, minimum', creamCapexPerKwp: 'Bulk install cost (RM/kWp)'
+    creamRadiusKm: 'Buyer search radius (km, screening)', creamMinHomes: 'Estimated homes per group, minimum', creamCapexPerKwp: 'Bulk install cost (RM/kWp)'
   }],
   ['Storage & grid', {
     capacityCharge: 'Capacity charge (RM/kW/month)', networkCharge: 'Network charge (RM/kW/month)',
@@ -1035,6 +1280,9 @@ async function loadTownship(id, live = false) {
   recompute();
   map.flyTo({ center: [t.view.longitude, t.view.latitude], zoom: t.view.zoom, pitch: t.view.pitch, bearing: t.view.bearing, duration: 1200 });
   runShading();
+  for (const siteId of Object.keys(state.droneJobs)) {
+    if (state.sites.some((site) => site.id === siteId) && state.droneJobs[siteId].stage !== 'failed') watchDroneJob(siteId);
+  }
 }
 
 async function init() {
@@ -1046,8 +1294,10 @@ async function init() {
   syncSun();
   setTab(state.tab);
   renderSettings();
-  state.scans = await fetch(`${import.meta.env.BASE_URL}splats/scans.json`).then((r) => (r.ok ? r.json() : {})).then((j) => j.scans || {}).catch(() => ({}));
-  $('sampleScan').onclick = () => { state.pendingScan = null; openModal('3D viewer: sample scene', { src: `${BASE}splat.html?sample=1` }); };
+  state.publishedScans = await fetch(`${import.meta.env.BASE_URL}splats/scans.json`).then((r) => (r.ok ? r.json() : {})).then((j) => j.scans || {}).catch(() => ({}));
+  state.scans = { ...state.publishedScans };
+  try { await refreshScans(); } catch (err) { setStatus(err.message); }
+  $('sampleScan').onclick = () => openModal('3D viewer: sample scene', { src: `${BASE}splat.html?sample=1` });
   if (supabase) {
     document.querySelector('[data-export="supabase"]').hidden = false;
     try {
@@ -1060,6 +1310,7 @@ async function init() {
     }
   }
   await loadTownship(state.township);
+  state.droneProcessor = await droneHealth().catch(() => ({ ready: false }));
 }
 
 init().catch((err) => { setLoading(null); setStatus(`Error: ${err.message}`); });

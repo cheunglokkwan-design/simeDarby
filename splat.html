@@ -38,7 +38,7 @@
       label.row output { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
       input[type='range'] { width: 100%; accent-color: var(--brand); }
       .field { display: block; font-size: 12px; color: var(--muted); margin: 8px 0 3px; }
-      select, textarea, input[type='text'] {
+      select, textarea, input[type='text'], input[type='date'] {
         width: 100%; font: inherit; font-size: 13px; color: var(--text); background: var(--surface);
         border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; outline: none;
       }
@@ -51,7 +51,12 @@
       textarea { min-height: 60px; resize: vertical; }
       .btn { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 7px 12px; font: inherit; font-size: 13px; cursor: pointer; }
       .btn:hover { border-color: var(--brand); }
-      .btn.primary { background: var(--brand); border-color: var(--brand); color: var(--text); font-weight: 600; }
+      .btn.primary { background: var(--brand); border-color: var(--brand); color: #1b1f27; font-weight: 600; }
+      .btn:disabled { opacity: .55; cursor: not-allowed; }
+      button:focus-visible, input:focus-visible { outline: 2px solid #7a5600; outline-offset: 3px; }
+      .error { color: #a52b20; }
+      #progress { max-width: min(560px, calc(100% - 32px)); }
+      #saveStatus { margin-bottom: 0; }
       .actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
       .chk { display: flex; align-items: center; gap: 6px; font-size: 12.5px; margin: 4px 0; }
       #progress { position: absolute; z-index: 2; left: 50%; top: 14px; transform: translateX(-50%); background: var(--surface); border-radius: 999px; padding: 6px 14px; font-size: 12px; color: var(--muted); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3); }
@@ -77,6 +82,7 @@
       <h1 id="title">Drone scan</h1>
       <div class="sub" id="subtitle"></div>
       <span class="badge" id="badge"></span>
+      <div class="actions"><button class="btn" id="fitScan" disabled>Center view on scan</button></div>
       <nav class="tabs" role="tablist">
         <button role="tab" data-tab="compare" aria-selected="true">Compare</button>
         <button role="tab" data-tab="align">Align</button>
@@ -85,24 +91,25 @@
 
       <section data-panel="compare">
         <div class="key"><i style="background:#ffc94a"></i>Our predicted roof outline, at our estimated height</div>
-        <div class="key"><i style="background:#2b9fdc"></i>Our usable panel area</div>
+        <div class="key"><i style="background:#244f80"></i>Draft solar-panel layout</div>
         <label class="chk"><input type="checkbox" id="showOutline" checked /> Show outline</label>
-        <label class="chk"><input type="checkbox" id="showPanels" checked /> Show panel area</label>
+        <label class="chk"><input type="checkbox" id="showPanels" checked /> Show individual panels</label>
         <table id="predictions"></table>
-        <p class="note">If the yellow outline floats above or sinks into the scanned roof, our height estimate is off. If equipment sits inside the blue area, the usable roof is smaller than we assumed. Record what you see under <b>Findings</b>.</p>
+        <p class="note">First use <b>Align</b> to match the yellow outline to the scan. The individual panels form a draft layout based on the mapped roof, with assumed dimensions and setbacks. Roof planes and obstructions are not automatically detected; check the layout against the capture before accepting it.</p>
       </section>
 
       <section data-panel="align" hidden>
-        <p class="note">Line the yellow outline up with the scanned roof once per scan, then copy the alignment into <code>scans.json</code>. Scans exported with GPS (OpenDroneMap, Polycam georeferenced) usually need only a small nudge.</p>
+        <p class="note">Move, rotate and scale the yellow outline until it matches the scanned roof. Save the alignment on this device, then review the roof under Findings. Changing the saved alignment resets the review status.</p>
         <div id="sliders"></div>
         <div class="actions">
-          <button class="btn primary" id="copyAlign">Copy alignment</button>
+          <button class="btn primary" id="saveAlign" disabled>Save alignment</button>
           <button class="btn" id="resetAlign">Reset</button>
+          <button class="btn" id="copyAlign">Copy alignment</button>
         </div>
       </section>
 
       <section data-panel="findings" hidden>
-        <p class="note">What the scan shows, compared with our estimate. "Copy scan entry" gives the full <code>scans.json</code> entry, findings included. The site card then shows them as <b>Drone-verified</b>.</p>
+        <p class="note">Record what the scan shows compared with our estimate. Save findings to this building on this device. A visual review does not certify roof measurements or structural condition.</p>
         <label class="field" for="f-roofType">Roof type</label>
         <select id="f-roofType"><option value="">Not checked</option><option>Flat concrete</option><option>Metal deck</option><option>Clay or concrete tile</option><option>Mixed</option></select>
         <label class="field" for="f-obstructions">Rooftop equipment</label>
@@ -117,10 +124,14 @@
         <select id="f-areaCheck"><option value="">Not checked</option><option>Matches</option><option>Less usable than estimated</option><option>More usable than estimated</option></select>
         <label class="field" for="f-notes">Notes</label>
         <textarea id="f-notes" placeholder="Anything an installer should know"></textarea>
-        <label class="field" for="f-captured">Captured (date and source)</label>
-        <input type="text" id="f-captured" placeholder="2026-10-21 · DJI Mini 4 Pro · Polycam" />
-        <div class="actions"><button class="btn primary" id="copyEntry">Copy scan entry</button></div>
+        <label class="field" for="f-captured">Capture date (optional)</label>
+        <input type="date" id="f-captured" />
+        <label class="field" for="f-source">Source (optional)</label>
+        <input type="text" id="f-source" placeholder="e.g. DJI Mini 4 Pro · Nerfstudio" />
+        <label class="chk"><input id="reviewed" type="checkbox" /> I have reviewed this scan and recorded my findings</label>
+        <div class="actions"><button class="btn primary" id="saveReview" disabled>Save findings</button><button class="btn" id="copyEntry">Copy scan entry</button></div>
       </section>
+      <p id="saveStatus" class="note" role="status" aria-live="polite"></p>
     </aside>
 
     <script type="module" src="/src/splat.js"></script>

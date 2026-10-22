@@ -7,3 +7,8 @@ dist/
 .DS_Store
 .venv/
 .claude/
+/.playwright-mcp/
+/before.png
+/qa-*.png
+/.drone-jobs/
+**/__pycache__/

@@ -3,6 +3,8 @@
   "version": "1.0.0",
   "description": "Solar Opportunity Mapper: open-data solar, community solar and battery screening for Sime Darby Property townships",
   "scripts": {
+    "test": "node --test tests/*.test.js",
+    "test:worker": "python -m unittest discover -s tests -p test_worker.py",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",

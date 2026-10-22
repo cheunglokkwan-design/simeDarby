@@ -19,8 +19,8 @@ and the tariffs and costs are editable placeholders.
 
 | Tab | Question it answers |
 |---|---|
-| **1. Community solar** | How can SDP run community solar (CREAM) in its own townships, and what does each household get: buy, finance or lease the roof? |
-| **2. Find roofs** | Which roofs and car parks should get solar, and what do they save? |
+| **1. Find roofs** | Which roofs and car parks should get solar, and what do they save? |
+| **2. Community solar** | Which proposed groups of home roofs could share power with nearby buyers, and what does each household get? |
 | **3. Store energy** | Where does a battery make the most sense, and how long does it take to pay back? |
 
 The impact bar stays visible across all three and gives the honest number: MWp on all viable roofs →
@@ -63,6 +63,15 @@ npm run dev
 ```
 
 Open http://localhost:5173.
+
+Select a building and choose **Create solar layout from drone footage**. Draft
+panel layouts and finished-splat imports work locally. Video reconstruction uses
+the included [remote GPU worker](docs/drone-worker.md), which needs hosting and
+server-side connection settings before footage can be processed. Draft layouts
+use the mapped footprint; roof planes and obstacles still require review.
+
+Community-solar boundaries are proposed geographic groups, with ownership and
+feeder checks pending. See the [zoning audit](docs/zoning-audit.md).
 
 - `npm run fetch-osm`: refresh the cached OSM snapshots in `public/data/`
   (the app works offline from these; the "Re-fetch live OSM data" button pulls fresh data in the browser).

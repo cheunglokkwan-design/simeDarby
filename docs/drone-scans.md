@@ -1,5 +1,35 @@
 # Drone scans: from flight to the app
 
+## Import and review on localhost
+
+Select a building in **Find roofs**, then choose **Add drone scan**. Import a
+finished Gaussian `.ply`, `.splat` or `.ksplat` file (up to 200 MB). Files,
+alignment and findings are saved in IndexedDB in this browser on this device;
+they are not uploaded or shared. Keep the original files. Browser data is scoped
+to the exact origin, so `localhost` and `127.0.0.1` have separate scan libraries.
+
+In the viewer, use **Align → Save alignment**, then **Findings → Save findings**.
+The status becomes **Scan reviewed** only after recording findings and checking
+the review checkbox. Saving a new alignment resets that status. This is a visual
+review, not measurement or structural certification. Removing a local scan
+restores the published entry, if one exists.
+
+The building card also accepts MP4, MOV, M4V and WebM footage. Video reconstruction
+requires the remote GPU worker described in [drone-worker.md](drone-worker.md).
+The worker package is included, but hosting and credentials are not configured.
+The app reports this directly instead of pretending to process the video.
+
+**Preview draft panel layout** works immediately without a worker. It packs
+individual assumed-size panels within the mapped footprint, respecting an edge
+setback and the modelled capacity cap. Imports and completed video jobs generate
+this draft automatically. It appears in the map, the 3D viewer and a downloadable
+JSON file. Roof geometry, pitch and obstacles are not automatically extracted
+from the footage in this version; the draft uses mapped geometry and needs review.
+
+The manual publishing workflow below remains available for shared scan assets.
+Its older "Drone-verified" wording now corresponds to "Scan available" until a
+review is explicitly saved.
+
 A drone scan turns a shortlisted roof from "our estimate" into "checked". In the
 app, a scanned roof's card gets a **Drone-verified** badge and a **View drone
 scan (3D)** button. The viewer draws our predicted roof outline (yellow) and
