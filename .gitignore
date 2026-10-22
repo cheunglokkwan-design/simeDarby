@@ -10,3 +10,5 @@ dist/
 /.playwright-mcp/
 /before.png
 /qa-*.png
+/.drone-jobs/
+**/__pycache__/

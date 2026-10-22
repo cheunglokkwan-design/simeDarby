@@ -5,13 +5,15 @@ import { PolygonLayer, SolidPolygonLayer, ScatterplotLayer, ArcLayer, TextLayer 
 
 import { TOWNSHIPS } from './townships.js';
 import { fetchOverpass } from './osm.js';
-import { convexHull } from './geo.js';
+import { convexHull, makeProjector } from './geo.js';
 import { DEFAULT_ASSUMPTIONS, GRID_FLAG, buildSites, scoreSites, summarise, funnel, monthlyPayment, toCSV, toGeoJSON, toKML } from './solar.js';
 import { siteBriefHTML } from './brief.js';
 import { planCream } from './cream.js';
 import { planStorage } from './storage.js';
 import { supabase, loadAssumptionOverrides, saveShortlist } from './supabase.js';
 import { localScanMetadata, saveLocalScan, removeLocalScan, validateSplat } from './scans.js';
+import { panelLayoutForSite } from './panels.js';
+import { VIDEO_EXTENSIONS, droneHealth, uploadDroneVideo, droneJob, downloadDroneScan } from './drone.js';
 
 const $ = (id) => document.getElementById(id);
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -36,6 +38,9 @@ const state = {
   storageData: null,
   scans: {},
   publishedScans: {},
+  layouts: {},
+  droneProcessor: null,
+  droneJobs: loadPendingJobs(),
   assumptions: { ...DEFAULT_ASSUMPTIONS },
   overrides: {},
   month: 2,
@@ -113,6 +118,7 @@ function buildingColor(s) {
     if (!FILTERS[state.findFilter][1](s)) return NEUTRAL;
     return state.colorBy === 'sun' ? SUN_RAMP(s.shading ?? 1) : ramp(s.score / 100);
   }
+
   if (state.tab === 'share') {
     const z = state.zoneOf.get(s);
     if (z) return z === state.selectedZone ? ZONE_SEL : ZONE;
@@ -309,6 +315,18 @@ function render() {
     );
   }
 
+  const layout = state.selected && (state.layouts[state.selected.id] || state.scans[state.selected.id]?.layout);
+  if (layout?.panels?.length && state.tab === 'find') {
+    const projection = makeProjector(...state.origin);
+    const [cx, cy] = state.selected.centroid;
+    const height = state.satellite ? .8 : state.selected.height + .5;
+    layers.push(new PolygonLayer({
+      id: 'solar-panel-layout', data: layout.panels,
+      getPolygon: (panel) => panel.map(([x, y]) => [...projection.toLonLat([x + cx, y + cy]), height]),
+      getFillColor: [24, 48, 91, 245], getLineColor: [174, 219, 255, 255],
+      stroked: true, lineWidthMinPixels: .7, material: false, shadowEnabled: false, parameters: ON_TOP
+    }));
+  }
   overlay.setProps({ layers, effects: [lightingEffect()], onClick });
 }
 
@@ -423,8 +441,9 @@ function findPanel() {
       <h2>Where should solar go?</h2>
       <p class="lede">Find promising roofs in ${esc(TOWNSHIPS[state.township].name)}. Compare installation costs, yearly savings and how long solar takes to pay for itself.</p>
       <button class="btn primary start-button" data-start ${list.length ? '' : 'disabled'}>Explore the best ${state.findFilter === 'carparks' ? 'car park' : 'roof'} <span aria-hidden="true">→</span></button>
+      <p class="note drone-start-hint">Have drone footage? Select its building, then choose <b>Drone footage &amp; solar layout</b>.</p>
       <details class="quick-guide"><summary>How to use this map</summary>
-        <ol><li>Choose a township at the top.</li><li>Select a building on the map or in the list to see costs and savings.</li><li>Add a drone scan to inspect the roof in 3D.</li></ol>
+        <ol><li>Choose a township at the top.</li><li>Select the building shown in your drone footage.</li><li>Open Drone footage &amp; solar layout to upload video or preview a panel layout.</li></ol>
         <p>Use Community solar to explore shared power, or Battery storage to compare storage sites.</p>
       </details>
     </div>
@@ -583,6 +602,7 @@ function houseCard(s) {
     <button class="x" data-act="close" aria-label="Close">×</button>
     <h3>Your house: solar options</h3>
     <div class="sub">${esc(s.categoryLabel)}${n > 1 ? ` · one of ${n} homes in this row` : ''} · ${esc(TOWNSHIPS[state.township].name)}${zone ? ` · ${zoneName(zone)}` : ''}</div>
+    <div class="actions card-start"><button class="btn primary" data-act="add-scan">Create solar layout from drone footage</button></div>
     <p class="lede" style="margin:6px 0 10px">A ${fmt(kwp, 1)} kW system (${fmt((kwp * 1000) / a.panelWatt)} panels) makes about <b>${fmt(kwhMonth)} kWh a month</b>, sized to a home using ${fmt(a.homeKwhMonth)} kWh.</p>
     <div class="options">
       <div class="opt"><h4>Buy outright</h4>
@@ -609,7 +629,8 @@ function houseCard(s) {
     <div class="actions">
       <button class="btn primary" data-act="quotes">Request installer quotes</button>
       <button class="btn" data-act="sat">Satellite view</button>
-      <button class="btn" data-act="${state.scans[s.id] ? 'scan' : 'add-scan'}">${state.scans[s.id] ? 'View drone scan (3D)' : 'Add drone scan'}</button>
+      <button class="btn" data-act="add-scan">Drone footage &amp; solar layout</button>
+      ${state.scans[s.id] ? '<button class="btn" data-act="scan">View 3D scan</button>' : ''}
     </div>`;
 }
 
@@ -624,6 +645,7 @@ function siteCard(s) {
     <h3>${esc(label(s))}</h3>
     <div class="sub">${esc(s.categoryLabel)} · ${esc(TOWNSHIPS[state.township].name)}</div>
     ${fitBadge(s)}${scan ? `<span class="badge info">${scan.reviewed ? 'Scan reviewed' : 'Scan available'}</span>` : ''}${s.affordable ? '<span class="badge info">Affordable housing</span>' : ''}${s.gridDistM != null && s.gridDistM > a.gridMaxM ? '<span class="badge weak" title="OSM substation coverage is incomplete">Substation not mapped nearby</span>' : ''}
+    <div class="actions card-start"><button class="btn primary" data-act="add-scan">Create solar layout from drone footage</button></div>
     <div class="big4">
       <div><b>${power(s.kwp)}</b><span>system size · ${fmt(panels)} panels</span></div>
       <div><b>${rm(s.savings)}</b><span>saved per year</span></div>
@@ -669,7 +691,8 @@ function siteCard(s) {
       <button class="btn primary" data-act="brief">Site brief (PDF)</button>
       <button class="btn" data-act="quotes">Request quotes</button>
       <button class="btn" data-act="sat">Satellite view</button>
-      <button class="btn" data-act="${scan ? 'scan' : 'add-scan'}">${scan ? 'View drone scan (3D)' : 'Add drone scan'}</button>
+      <button class="btn" data-act="add-scan">Drone footage &amp; solar layout</button>
+      ${scan ? '<button class="btn" data-act="scan">View 3D scan</button>' : ''}
     </div>`;
 }
 
@@ -681,7 +704,13 @@ const FINDING_LABELS = {
 function droneSection(s, scan) {
   const f = scan?.findings || {};
   const rows = Object.entries(FINDING_LABELS).filter(([k]) => f[k]).map(([k, l]) => [l, esc(f[k])]);
-  return `<details id="drone-check" ${scan ? 'open' : ''}><summary>Drone scan &amp; roof review</summary><div class="body">
+  const job = state.droneJobs[s.id];
+  const busy = job && !['failed', 'connection_lost'].includes(job.stage);
+  const layout = state.layouts[s.id] || scan?.layout;
+  return `<details id="drone-check" ${scan || job || layout ? 'open' : ''}><summary>Drone footage &amp; solar layout</summary><div class="body">
+    <p>Upload footage of <b>${esc(label(s))}</b> to create an explorable 3D scan and a draft solar-panel layout.</p>
+    <ol class="drone-steps"><li>Upload a steady orbit of this building.</li><li>The GPU worker reconstructs the scene.</li><li>Review the panels and roof together in 3D.</li></ol>
+    ${job ? `<p class="job-state" role="status"><b>${esc(({ queued: 'Queued', camera_alignment: 'Reconstructing cameras', training: 'Building 3D scan', exporting: 'Preparing result', failed: 'Processing failed', connection_lost: 'Connection interrupted', downloading: 'Saving result' })[job.stage] || 'Processing')}</b><br>${esc(job.message || '')}</p>${job.stage === 'connection_lost' ? '<button class="btn" data-act="retry-job" type="button">Check job again</button>' : ''}` : ''}
     ${scan ? `<p><b>${scan.reviewed ? 'Scan reviewed' : 'Scan available · awaiting review'}</b></p>${kv([
       ['Captured', esc([scan.captured, scan.source].filter(Boolean).join(' · ') || 'Not recorded')],
       ...(scan.filename ? [['File', esc(scan.filename)]] : []),
@@ -689,16 +718,30 @@ function droneSection(s, scan) {
     ])}<p>${scan.local ? 'Saved in this browser on this device.' : 'Published scan.'} Open the 3D viewer to align the roof and record findings.</p>
     ${scan.local ? '<button class="btn" type="button" data-act="remove-scan">Remove local scan</button>' : ''}` : '<p>Inspect rooftop equipment and compare our predicted roof outline with a 3D drone capture.</p>'}
     <form id="scan-import" class="scan-form">
-      <label for="scan-file">${scan ? 'Replace scan' : 'Import a finished Gaussian splat'}</label>
-      <input id="scan-file" name="file" type="file" accept=".ply,.splat,.ksplat" required aria-describedby="scan-file-help" />
-      <p id="scan-file-help" class="note">.ply, .splat or .ksplat · up to 200 MB. Saved only in this browser; keep your original file.</p>
+      <label for="scan-file">Drone footage or finished 3D scan</label>
+      <input id="scan-file" name="file" type="file" accept=".mp4,.mov,.m4v,.webm,.ply,.splat,.ksplat" required aria-describedby="scan-file-help" ${busy ? 'disabled' : ''} />
+      <p id="scan-file-help" class="note">Video: MP4, MOV, M4V or WebM · up to 1 GB and 10 minutes. Finished scan: PLY, SPLAT or KSPLAT · up to 200 MB.</p>
+      ${!state.droneProcessor?.ready ? '<p class="processor-note">Video processing needs a ready GPU worker. You can import a finished scan or preview a draft layout below while hosting is being configured.</p>' : '<p class="processor-note">Video is sent to your configured GPU worker for processing. Finished scans and reviews are saved in this browser.</p>'}
       <div class="scan-fields"><div><label for="scan-date">Capture date <span>(optional)</span></label><input id="scan-date" name="captured" type="date" /></div>
       <div><label for="scan-source">Source <span>(optional)</span></label><input id="scan-source" name="source" type="text" maxlength="160" placeholder="e.g. DJI Mini 4 Pro" /></div></div>
-      <button class="btn primary" type="submit">Import &amp; open scan</button>
+      <button class="btn primary" type="submit" ${busy ? 'disabled' : ''}>Create 3D scan &amp; layout</button>
+      <button class="btn" type="button" data-act="layout">${layout ? 'Regenerate' : 'Preview'} draft panel layout</button>
       <p class="scan-status note" id="scan-status" role="status" aria-live="polite"></p>
     </form>
-    <details class="processing-help"><summary>Have drone video instead?</summary><p>First reconstruct the footage with a Gaussian splatting tool, such as Nerfstudio Splatfacto, then export a Gaussian PLY and import it here. Video processing requires a separate GPU workflow.</p><p>Capture the roof from several overlapping angles with sharp, steady footage. Use a calibrated measurement model for roof dimensions; this viewer supports visual inspection.</p><a href="https://docs.nerf.studio/nerfology/methods/splat.html" target="_blank" rel="noopener">Splatfacto processing guide</a></details>
+    ${layout ? layoutPreview(s, layout) : ''}
+    <details class="processing-help"><summary>Capture tips &amp; layout assumptions</summary><p>Record sharp, steady footage around the roof from several overlapping angles. Keep the roof in view and avoid sudden exposure changes.</p><p>The draft layout uses the mapped roof boundary, a 0.6 m edge setback and assumed 1.134 × 2.278 m panels. It does not automatically detect roof pitch, obstacles, access routes or structural limits. Confirm dimensions and obstructions against the scan and a measured survey before installation.</p></details>
   </div></details>`;
+}
+
+function layoutPreview(s, layout) {
+  const ring = scanPayload(s).footprint;
+  const xs = ring.map(p => p[0]), ys = ring.map(p => -p[1]);
+  const x = Math.min(...xs), y = Math.min(...ys), width = Math.max(...xs) - x, height = Math.max(...ys) - y;
+  const points = (polygon) => polygon.map(([px, py]) => `${px},${-py}`).join(' ');
+  return `<section class="layout-preview" aria-label="Draft solar panel layout"><h4>${layout.count} panels · ${fmt(layout.kwp, 1)} kWp</h4>
+    <svg viewBox="${x - 2} ${y - 2} ${width + 4} ${height + 4}" role="img" aria-label="Proposed panels inside the mapped roof footprint"><polygon points="${points(ring)}" fill="#eaf1ef" stroke="#68847c" stroke-width=".25" />${layout.panels.map((panel) => `<polygon points="${points(panel)}" fill="#18305b" stroke="#b0dbff" stroke-width=".08" />`).join('')}</svg>
+    <p class="note">Draft based on the mapped footprint. ${layout.count ? 'Check roof planes, scale, obstacles and access before accepting this layout.' : 'No panels fit within the current boundary, setback and capacity assumptions.'}</p>
+    <button class="btn" type="button" data-act="export-layout">Download layout (JSON)</button></section>`;
 }
 
 function scanPayload(s) {
@@ -708,7 +751,7 @@ function scanPayload(s) {
     footprint: s.xy.map(([x, y]) => [x - cx, y - cy]),
     height: s.height, heightSource: s.heightSource, area: s.area, usable: s.usable,
     kwp: s.kwp, panels: Math.floor((s.kwp * 1000) / state.assumptions.panelWatt),
-    flags: s.flags, scan: state.scans[s.id]
+    flags: s.flags, scan: state.scans[s.id], layout: state.layouts[s.id] || state.scans[s.id]?.layout
   };
 }
 let scanSite = null;
@@ -721,6 +764,64 @@ function openScan(s) {
 
 async function refreshScans() {
   state.scans = { ...state.publishedScans, ...await localScanMetadata() };
+}
+
+function loadPendingJobs() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('solar-drone-jobs') || '{}');
+    return saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
+  }
+  catch { return {}; }
+}
+function persistJobs() {
+  try { localStorage.setItem('solar-drone-jobs', JSON.stringify(state.droneJobs)); }
+  catch { setStatus('Processing can continue, but this browser could not save job tracking. Keep the page open.'); }
+}
+const watchedJobs = new Set();
+async function watchDroneJob(siteId) {
+  if (watchedJobs.has(siteId) || !state.droneJobs[siteId]) return;
+  watchedJobs.add(siteId);
+  const pending = state.droneJobs[siteId];
+  let failures = 0;
+  const check = async () => {
+    let retry = false;
+    try {
+      const job = await droneJob(pending.id);
+      failures = 0;
+      if (job.siteId !== siteId) throw new Error('The processor returned a result for another building.');
+      state.droneJobs[siteId] = { ...pending, ...job };
+      persistJobs();
+      if (job.stage === 'complete') {
+        state.droneJobs[siteId].stage = 'downloading';
+        const file = await downloadDroneScan(job.id);
+        await validateSplat(file);
+        const s = state.sites.find((site) => site.id === siteId);
+        const layout = s ? panelLayoutForSite(scanPayload(s), state.assumptions.panelWatt) : pending.siteMetrics ? panelLayoutForSite(pending.siteMetrics) : undefined;
+        await saveLocalScan({ id: siteId, file, filename: file.name, format: 'ply', title: s ? label(s) : 'Drone scan',
+          source: pending.source || 'Drone footage · Nerfstudio', captured: pending.captured || '',
+          cameraUp: job.cameraUp || [0, 0, 1], overlay: { position: [0, 0, 0], rotation: [90, 0, 0], scale: 1 },
+          reviewed: false, layout, siteMetrics: pending.siteMetrics });
+        if (layout) state.layouts[siteId] = layout;
+        delete state.droneJobs[siteId];
+        persistJobs();
+        await refreshScans();
+        if (state.selected?.id === siteId) { renderCard(); render(); openScan(state.selected); }
+      } else if (job.stage !== 'failed') retry = true;
+      if (state.selected?.id === siteId) renderCard();
+    } catch (err) {
+      failures++;
+      retry = failures < 3;
+      if (!retry) {
+        state.droneJobs[siteId] = { ...pending, stage: 'connection_lost', message: `${err.message} Check the job again to resume.` };
+        persistJobs();
+        if (state.selected?.id === siteId) renderCard();
+      }
+    } finally {
+      if (retry) setTimeout(check, 5000);
+      else watchedJobs.delete(siteId);
+    }
+  };
+  await check();
 }
 window.addEventListener('message', async (e) => {
   if (e.origin !== location.origin || e.source !== $('modalFrame').contentWindow) return;
@@ -772,10 +873,27 @@ function bindCard() {
     status.classList.remove('error');
     try {
       const file = form.elements.file.files[0];
+      const extension = file?.name.split('.').pop().toLowerCase();
+      if (VIDEO_EXTENSIONS.includes(extension)) {
+        if (!file.size || file.size > 1024 ** 3) throw new Error('Choose a non-empty drone video under 1 GB.');
+        const health = await droneHealth();
+        state.droneProcessor = health;
+        if (!health.ready) throw new Error(health.message);
+        status.textContent = 'Uploading footage…';
+        const job = await uploadDroneVideo(file, site.id, (progress) => { status.textContent = `Uploading footage… ${progress}%`; });
+        const { scan: previousScan, ...siteMetrics } = scanPayload(site);
+        state.droneJobs[site.id] = { ...job, captured: form.elements.captured.value, source: form.elements.source.value.trim(), siteMetrics };
+        persistJobs();
+        renderCard();
+        watchDroneJob(site.id);
+        return;
+      }
       const format = await validateSplat(file);
+      const layout = panelLayoutForSite(scanPayload(site), state.assumptions.panelWatt);
       await saveLocalScan({ id: site.id, file, filename: file.name, format, title: label(site),
         captured: form.elements.captured.value, source: form.elements.source.value.trim(), reviewed: false,
-        cameraUp: [0, 1, 0] });
+        cameraUp: [0, 1, 0], layout, siteMetrics: { ...scanPayload(site), scan: undefined } });
+      state.layouts[site.id] = layout;
       await refreshScans();
       renderCard();
       openScan(site);
@@ -792,6 +910,25 @@ function bindCard() {
       if (act === 'sat') { setBasemap(true); return map.flyTo({ center: state.selected.position, zoom: 17.6, pitch: 0, bearing: 0, duration: 1400 }); }
       if (act === 'sat-zone') { setBasemap(true); return map.flyTo({ center: state.selectedZone.position, zoom: 16.2, pitch: 0, bearing: 0, duration: 1400 }); }
       if (act === 'scan') return openScan(state.selected);
+      if (act === 'layout') {
+        const s = state.selected;
+        const layout = panelLayoutForSite(scanPayload(s), state.assumptions.panelWatt);
+        state.layouts[s.id] = layout;
+        renderCard(); render();
+        $('drone-check').open = true;
+        $('card').querySelector('.layout-preview')?.scrollIntoView({ block: 'nearest' });
+        return;
+      }
+      if (act === 'export-layout') {
+        const s = state.selected;
+        const data = { siteId: s.id, ...scanPayload(s).layout, origin: s.position,
+          coordinateSystem: 'Local metres, x east, y north, origin at mapped roof centroid', height: s.height };
+        const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+        const a = document.createElement('a'); a.href = url; a.download = `${s.id.replace('/', '-')}-draft-panels.json`; a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        return;
+      }
+      if (act === 'retry-job') { watchDroneJob(state.selected.id); return; }
       if (act === 'add-scan') {
         $('drone-check').open = true;
         $('drone-check').scrollIntoView({ block: 'start', behavior: 'smooth' });
@@ -800,7 +937,7 @@ function bindCard() {
       }
       if (act === 'remove-scan') {
         btn.disabled = true;
-        try { await removeLocalScan(state.selected.id); await refreshScans(); renderCard(); }
+        try { await removeLocalScan(state.selected.id); delete state.layouts[state.selected.id]; await refreshScans(); renderCard(); render(); }
         catch (err) { $('scan-status').textContent = err.message; btn.disabled = false; }
         return;
       }
@@ -1100,6 +1237,9 @@ async function loadTownship(id, live = false) {
   recompute();
   map.flyTo({ center: [t.view.longitude, t.view.latitude], zoom: t.view.zoom, pitch: t.view.pitch, bearing: t.view.bearing, duration: 1200 });
   runShading();
+  for (const siteId of Object.keys(state.droneJobs)) {
+    if (state.sites.some((site) => site.id === siteId) && state.droneJobs[siteId].stage !== 'failed') watchDroneJob(siteId);
+  }
 }
 
 async function init() {
@@ -1127,6 +1267,7 @@ async function init() {
     }
   }
   await loadTownship(state.township);
+  state.droneProcessor = await droneHealth().catch(() => ({ ready: false }));
 }
 
 init().catch((err) => { setLoading(null); setStatus(`Error: ${err.message}`); });

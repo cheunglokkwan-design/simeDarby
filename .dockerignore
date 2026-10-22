@@ -1,0 +1,10 @@
+.git
+.env
+.env.*.local
+node_modules
+dist
+.drone-jobs
+.playwright-mcp
+**/__pycache__
+qa-*.png
+before.png

@@ -338,3 +338,13 @@ input[type='range']::-moz-range-thumb {
 .zone-explainer small { display: block; color: #365e73; font-size: 12px; line-height: 1.5; }
 .zone-checks { padding-left: 18px; font-size: 12px; line-height: 1.55; color: var(--muted); }
 .zone-checks li { margin: 6px 0; }
+.drone-start-hint { margin: 12px 0; }
+.card-start { margin: 6px 0 14px; }
+.card-start .btn { white-space: normal; text-align: left; line-height: 1.4; width: 100%; }
+.drone-steps { padding-left: 18px; line-height: 1.6; }
+.processor-note, .job-state { padding: 10px 12px; border-radius: 8px; background: var(--surface-2); color: var(--muted); font-size: 12px; line-height: 1.55; }
+.job-state b { color: var(--text); }
+.scan-form .btn { white-space: normal; margin-bottom: 8px; }
+.layout-preview { margin: 16px 0; }
+.layout-preview h4 { font-size: 16px; margin: 0 0 10px; }
+.layout-preview svg { width: 100%; max-height: 220px; background: #f4f7f5; border-radius: 8px; display: block; }

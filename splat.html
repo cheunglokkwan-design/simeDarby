@@ -38,7 +38,7 @@
       label.row output { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
       input[type='range'] { width: 100%; accent-color: var(--brand); }
       .field { display: block; font-size: 12px; color: var(--muted); margin: 8px 0 3px; }
-      select, textarea, input[type='text'] {
+      select, textarea, input[type='text'], input[type='date'] {
         width: 100%; font: inherit; font-size: 13px; color: var(--text); background: var(--surface);
         border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; outline: none;
       }
@@ -91,11 +91,11 @@
 
       <section data-panel="compare">
         <div class="key"><i style="background:#ffc94a"></i>Our predicted roof outline, at our estimated height</div>
-        <div class="key"><i style="background:#2b9fdc"></i>Our usable panel area</div>
+        <div class="key"><i style="background:#244f80"></i>Draft solar-panel layout</div>
         <label class="chk"><input type="checkbox" id="showOutline" checked /> Show outline</label>
-        <label class="chk"><input type="checkbox" id="showPanels" checked /> Show panel area</label>
+        <label class="chk"><input type="checkbox" id="showPanels" checked /> Show individual panels</label>
         <table id="predictions"></table>
-        <p class="note">First use <b>Align</b> to match the yellow outline to the scan. Then inspect equipment and roof shape and record differences under <b>Findings</b>. The blue area is an estimate, not a measured panel layout.</p>
+        <p class="note">First use <b>Align</b> to match the yellow outline to the scan. The individual panels form a draft layout based on the mapped roof, with assumed dimensions and setbacks. Roof planes and obstructions are not automatically detected; check the layout against the capture before accepting it.</p>
       </section>
 
       <section data-panel="align" hidden>
@@ -124,8 +124,10 @@
         <select id="f-areaCheck"><option value="">Not checked</option><option>Matches</option><option>Less usable than estimated</option><option>More usable than estimated</option></select>
         <label class="field" for="f-notes">Notes</label>
         <textarea id="f-notes" placeholder="Anything an installer should know"></textarea>
-        <label class="field" for="f-captured">Captured (date and source)</label>
-        <input type="text" id="f-captured" placeholder="2026-10-21 · DJI Mini 4 Pro · Polycam" />
+        <label class="field" for="f-captured">Capture date (optional)</label>
+        <input type="date" id="f-captured" />
+        <label class="field" for="f-source">Source (optional)</label>
+        <input type="text" id="f-source" placeholder="e.g. DJI Mini 4 Pro · Nerfstudio" />
         <label class="chk"><input id="reviewed" type="checkbox" /> I have reviewed this scan and recorded my findings</label>
         <div class="actions"><button class="btn primary" id="saveReview" disabled>Save findings</button><button class="btn" id="copyEntry">Copy scan entry</button></div>
       </section>

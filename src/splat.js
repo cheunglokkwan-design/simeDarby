@@ -7,6 +7,7 @@
 import * as THREE from 'three';
 import * as GaussianSplats3D from '@mkkellogg/gaussian-splats-3d';
 import { getLocalScan, saveLocalScan } from './scans.js';
+import { panelLayoutForSite } from './panels.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -25,6 +26,7 @@ let overlay = { ...DEFAULT_OVERLAY };
 let viewer = null;
 let objectUrl = null;
 let scanLoaded = false;
+let panelLayout = null;
 
 function toast(text) {
   const t = $('toast');
@@ -63,17 +65,19 @@ function buildOverlay(s) {
   for (const [x, y] of ring.slice(0, -1)) posts.push(new THREE.Vector3(x, 0, -y), new THREE.Vector3(x, s.height, -y));
   outlineGroup.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(posts), faint));
 
-  // Usable panel area: the footprint shrunk about its centroid to the usable share.
-  const k = Math.sqrt(Math.max(0.01, Math.min(1, s.usable / s.area)));
-  const shape = new THREE.Shape(ring.map(([x, y]) => new THREE.Vector2(x * k, y * k)));
-  const geo = new THREE.ShapeGeometry(shape);
-  geo.rotateX(-Math.PI / 2); // lay flat: shape (x, y) -> world (x, 0, -y)
-  const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0x2b9fdc, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthTest: false }));
-  mesh.position.y = s.height + 0.05;
-  panelGroup.add(mesh);
-  const edge = new THREE.Line(new THREE.BufferGeometry().setFromPoints(ring.map(([x, y]) => new THREE.Vector3(x * k, s.height + 0.06, -y * k))),
-    new THREE.LineBasicMaterial({ color: 0x7fd0ff, transparent: true, depthTest: false }));
-  panelGroup.add(edge);
+  panelLayout = s.layout || scan?.layout || panelLayoutForSite(s);
+  const material = new THREE.MeshBasicMaterial({ color: 0x244f80, transparent: true, opacity: .8, side: THREE.DoubleSide, depthTest: false });
+  const edges = new THREE.LineBasicMaterial({ color: 0xb0dbff, depthTest: false });
+  const faces = [], lines = [];
+  for (const panel of panelLayout.panels) {
+    for (const i of [0, 1, 2, 0, 2, 3]) faces.push(panel[i][0], s.height + .1, -panel[i][1]);
+    for (const i of [0, 1, 1, 2, 2, 3, 3, 0]) lines.push(panel[i][0], s.height + .11, -panel[i][1]);
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(faces, 3));
+  const edgeGeometry = new THREE.BufferGeometry();
+  edgeGeometry.setAttribute('position', new THREE.Float32BufferAttribute(lines, 3));
+  panelGroup.add(new THREE.Mesh(geometry, material), new THREE.LineSegments(edgeGeometry, edges));
 }
 
 function applyOverlay() {
@@ -109,6 +113,7 @@ function renderSide() {
   else if (scan) { badge.textContent = scan.reviewed ? 'Scan reviewed' : 'Scan available · awaiting review'; badge.className = 'badge'; }
   else { badge.textContent = 'No scan registered yet'; badge.className = 'badge none'; }
   const rows = s ? [
+    ['Draft panel layout', `${fmt(panelLayout?.count || 0)} panels · ${fmt(panelLayout?.kwp || 0, 1)} kWp`],
     ['Roof footprint', `${fmt(s.area)} m²`],
     ['Usable for panels', `${fmt(s.usable)} m² (${fmt((100 * s.usable) / s.area)}%)`],
     ['Height', `${fmt(s.height, 1)} m${s.heightSource ? ` (${s.heightSource.toLowerCase()})` : ''}`],
@@ -117,7 +122,8 @@ function renderSide() {
   ] : [];
   $('predictions').innerHTML = rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
   if (scan?.findings) for (const [k, v] of Object.entries(scan.findings)) { const el = $(`f-${k}`); if (el) el.value = v; }
-  if (scan?.captured || scan?.source) $('f-captured').value = [scan.captured, scan.source].filter(Boolean).join(' · ');
+  $('f-captured').value = scan?.captured || '';
+  $('f-source').value = scan?.source || '';
   $('reviewed').checked = !!scan?.reviewed;
   $('saveAlign').hidden = $('saveReview').hidden = isSample || !siteId;
   $('saveAlign').disabled = $('saveReview').disabled = !scanLoaded;
@@ -169,16 +175,18 @@ function scanEntry() {
     const v = $(`f-${k}`).value.trim();
     if (v) findings[k] = v;
   }
-  const [captured, ...source] = $('f-captured').value.split('·').map((x) => x.trim());
+  const captured = $('f-captured').value;
+  const source = $('f-source').value.trim();
   const entry = {
     url: scan?.url || `/splats/${(site?.id || siteId || 'site').replace('/', '-')}.${scan?.format || 'ksplat'}`,
     title: site?.name || scan?.title || '',
     captured: captured || undefined,
-    source: source.join(' · ') || scan?.source,
+    source: source || undefined,
     cameraUp: scan?.cameraUp,
     camera: viewer?.camera ? { position: viewer.camera.position.toArray(), lookAt: viewer.controls.target.toArray() } : scan?.camera,
     overlay: overlayJSON(),
-    findings
+    findings,
+    layout: panelLayout
   };
   return entry;
 }
@@ -246,6 +254,7 @@ async function loadSplat() {
     catch (err) { $('saveStatus').textContent = err.message; }
   }
   scan = isSample ? reg.sample : local || site?.scan || reg.scans?.[siteId] || null;
+  if (!site && scan?.siteMetrics) site = scan.siteMetrics;
   if (isSample && !site) site = DEMO_SITE;
   overlay = structuredClone(scan?.overlay || DEFAULT_OVERLAY);
   buildOverlay(site);

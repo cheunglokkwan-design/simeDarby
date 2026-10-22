@@ -14,9 +14,17 @@ the review checkbox. Saving a new alignment resets that status. This is a visual
 review, not measurement or structural certification. Removing a local scan
 restores the published entry, if one exists.
 
-Raw drone-video reconstruction and automatic panel-layout generation are not
-implemented in this version. A deployable remote GPU worker is planned; no worker
-hosting or credentials have been configured.
+The building card also accepts MP4, MOV, M4V and WebM footage. Video reconstruction
+requires the remote GPU worker described in [drone-worker.md](drone-worker.md).
+The worker package is included, but hosting and credentials are not configured.
+The app reports this directly instead of pretending to process the video.
+
+**Preview draft panel layout** works immediately without a worker. It packs
+individual assumed-size panels within the mapped footprint, respecting an edge
+setback and the modelled capacity cap. Imports and completed video jobs generate
+this draft automatically. It appears in the map, the 3D viewer and a downloadable
+JSON file. Roof geometry, pitch and obstacles are not automatically extracted
+from the footage in this version; the draft uses mapped geometry and needs review.
 
 The manual publishing workflow below remains available for shared scan assets.
 Its older "Drone-verified" wording now corresponds to "Scan available" until a
