@@ -58,6 +58,7 @@ const state = {
   storageData: null,
   scans: {},
   publishedScans: {},
+  twinRegistry: { sites: {}, demo: 'friend-house' },
   layouts: {},
   droneProcessor: null,
   droneJobs: loadPendingJobs(),
@@ -85,6 +86,23 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<
 const label = (s) => s.name || siteAddress(s) || `${s.categoryLabel} · ${s.id}`;
 const zoneName = (c) => `Zone ${c.number}`;
 const plural = (n, one, many) => `${fmt(n)} ${n === 1 ? one : many}`;
+
+// ---------- 3D twin links (step 3: verify each site in 3D) ----------
+// Every mapped site opens a Level 1 twin built from its footprint and neighbours;
+// public/twins/index.json maps SDP site ids to drone-scanned Level 2 twins.
+const twinUrl = (s) => `${BASE}twin.html?town=${encodeURIComponent(state.township)}&site=${encodeURIComponent(s.id)}${Number.isFinite(s.kwp) && s.kwp > 0 ? `&kwp=${(+s.kwp).toFixed(1)}` : ''}`;
+const droneTwinOf = (s) => state.twinRegistry.sites?.[s.id] || null;
+const twinLevel = (s) => (droneTwinOf(s) ? 2 : 1);
+const twinLevelText = (s) => (droneTwinOf(s) ? 'Level 2 (drone)' : 'Level 1 (map)');
+// The twin saves its last draft layout per township/site (src/twin-viewer.js) for the brief.
+const twinPlanOf = (s) => { try { return JSON.parse(localStorage.getItem('solar.twinPlans') || '{}')[`${state.township}|${s.id}`] || null; } catch { return null; } };
+const twinInfo = (s) => ({ level: `${twinLevelText(s)} twin`, url: new URL(twinUrl(s), location.href).href, plan: twinPlanOf(s) });
+const demoTwinUrl = () => `${BASE}twin.html?twin=${encodeURIComponent(state.twinRegistry.demo || 'friend-house')}`;
+function twinButton(s, cls = 'btn twin-btn') {
+  if (!s || s.excluded) return '';
+  const drone = droneTwinOf(s);
+  return `<a class="${cls}" href="${esc(twinUrl(s))}" title="Open this site and its neighbours within 80 m as a 3D twin with a draft panel layout">View in 3D twin <span aria-hidden="true">→</span></a>${drone ? `<a class="btn twin-l2" href="${esc(`${BASE}twin.html?twin=${encodeURIComponent(drone)}`)}">Level 2 drone twin available</a>` : ''}`;
+}
 
 // ---------- map ----------
 const DARK_STYLE = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
@@ -606,7 +624,7 @@ function summaryMarkup(sites) {
 function candidateRow(s, saved) {
   const status = roofStatus(s), pending = !state.shadingReady;
   const control = s.studyReview?.control || 'unknown';
-  return `<li class="${state.selected === s ? 'sel' : ''} ${s.excluded ? 'excluded-row' : ''}"><button type="button" class="result-button" data-id="${esc(s.id)}" aria-pressed="${state.selected === s}"><div class="candidate-main"><div class="t">${esc(label(s))}</div><div class="candidate-type">${esc(s.categoryLabel)}${saved.some(site => site.id === s.id) ? '<span class="saved-mark">Shortlisted</span>' : ''}</div><div class="candidate-metrics"><span><b>${pending ? '—' : fmt(s.kwh / 1000)}</b> MWh/yr</span><span><b>${pending ? '—' : fmt((s.energyShading ?? s.shading ?? 1) * 100)}%</b> unshaded samples</span></div>${!pending && s.atapCapped ? `<div class="candidate-cap">${esc(capNote(s))}</div>` : ''}<div class="candidate-evidence ${s.excluded || status.status === 'unclear' ? 'attention' : ''}">${esc(status.label)}</div><div class="candidate-next">${esc(s.studyReview?.nextAction || (s.economicsReady === false ? 'Demand: no host linked' : s.evidence?.annualKwh ? 'Demand: user-reported, unverified' : 'Demand: category proxy, bills needed'))}</div>${control !== 'unknown' ? `<span class="control-tag">${esc(CONTROL_LABELS[control] || CONTROL_LABELS.unknown)}</span>` : ''}</div><span class="candidate-priority" title="Heuristic model priority; similar scores are not meaningfully different"><b>${pending ? '—' : fmt(s.score)}</b><small>priority</small></span></button></li>`;
+  return `<li class="${state.selected === s ? 'sel' : ''} ${s.excluded ? 'excluded-row' : ''}"><button type="button" class="result-button" data-id="${esc(s.id)}" aria-pressed="${state.selected === s}"><div class="candidate-main"><div class="t">${esc(label(s))}</div><div class="candidate-type">${esc(s.categoryLabel)}${saved.some(site => site.id === s.id) ? '<span class="saved-mark">Shortlisted</span>' : ''}</div><div class="candidate-metrics"><span><b>${pending ? '—' : fmt(s.kwh / 1000)}</b> MWh/yr</span><span><b>${pending ? '—' : fmt((s.energyShading ?? s.shading ?? 1) * 100)}%</b> unshaded samples</span></div>${!pending && s.atapCapped ? `<div class="candidate-cap">${esc(capNote(s))}</div>` : ''}<div class="candidate-evidence ${s.excluded || status.status === 'unclear' ? 'attention' : ''}">${esc(status.label)}</div>${state.listMode === 'shortlist' && !s.excluded ? `<div class="candidate-twin">3D twin: ${esc(twinLevelText(s))}${twinPlanOf(s) ? ` · ${fmt(twinPlanOf(s).kWp, 1)} kWp laid out` : ''}</div>` : ''}<div class="candidate-next">${esc(s.studyReview?.nextAction || (s.economicsReady === false ? 'Demand: no host linked' : s.evidence?.annualKwh ? 'Demand: user-reported, unverified' : 'Demand: category proxy, bills needed'))}</div>${control !== 'unknown' ? `<span class="control-tag">${esc(CONTROL_LABELS[control] || CONTROL_LABELS.unknown)}</span>` : ''}</div><span class="candidate-priority" title="Heuristic model priority; similar scores are not meaningfully different"><b>${pending ? '—' : fmt(s.score)}</b><small>priority</small></span></button></li>`;
 }
 
 function findPanel() {
@@ -617,7 +635,7 @@ function findPanel() {
   const list = matches.slice(0, state.findLimit);
   const viable = matches.length;
   return `
-    <div class="panel-intro"><h2>${shortlistMode ? 'Your study shortlist' : 'Choose sites for solar study'}</h2><p class="lede">${shortlistMode ? 'Check the evidence, assign the next step and export one study brief.' : 'Compare opportunities. Check the evidence. Plan the next site study.'}</p></div>
+    <div class="panel-intro"><h2>${shortlistMode ? 'Your study shortlist' : 'Choose sites for solar study'}</h2><p class="lede">${shortlistMode ? 'Check the evidence, assign the next step and export one study brief.' : 'Compare opportunities. Check the evidence. Plan the next site study.'}</p>${shortlistMode ? '' : '<p class="note pipeline-note"><b>Screen the township → shortlist → verify each site in 3D → hand over a study brief.</b> Every site opens as a Level 1 3D twin from its mapped footprint; a drone flight upgrades it to Level 2.</p>'}</div>
     <div class="list-switch" role="group" aria-label="Candidate lists"><button data-list-mode="ranked" aria-pressed="${!shortlistMode}">Ranked sites</button><button data-list-mode="shortlist" aria-pressed="${shortlistMode}">Shortlist (${saved.length})</button></div>
     ${analysisStatus()}
     ${shortlistMode ? `${saved.length ? summaryMarkup(saved) : '<p class="empty">Choose a ranked site and add it to your study shortlist. It will appear here with its checks and next action.</p>'}<button class="btn primary full-width" data-download-brief ${saved.length && state.shadingReady ? '' : 'disabled'}>Export study brief</button><p class="note">Opens a printable brief for PDF. Saved on this device; suitability remains unverified.</p>` : `
@@ -821,7 +839,7 @@ function renderCard() {
   el.hidden = false;
   const s = state.selected;
   const title = s ? label(s) : `${zoneName(state.selectedZone)} · proposed group`;
-  el.innerHTML = `<header class="selection-header"><button class="back-link" data-act="close">← ${state.tab === 'share' ? 'Solar homes' : state.tab === 'store' ? 'Battery sites' : 'All properties'}</button><button class="btn mobile-collapse" data-act="collapse-card" aria-expanded="${!state.cardCollapsed}" aria-controls="selection-body">${state.cardCollapsed ? 'Show details' : 'View map'}</button><div><b>${esc(title)}</b><small>${s ? esc(s.categoryLabel) : 'Ownership and grid checks pending'} · ${esc(TOWNSHIPS[state.township].name)}</small></div></header>
+  el.innerHTML = `<header class="selection-header"><button class="back-link" data-act="close">← ${state.tab === 'share' ? 'Solar homes' : state.tab === 'store' ? 'Battery sites' : 'All properties'}</button><button class="btn mobile-collapse" data-act="collapse-card" aria-expanded="${!state.cardCollapsed}" aria-controls="selection-body">${state.cardCollapsed ? 'Show details' : 'View map'}</button><div><b>${esc(title)}</b><small>${s ? esc(s.categoryLabel) : 'Ownership and grid checks pending'} · ${esc(TOWNSHIPS[state.township].name)}</small></div>${s && !s.excluded ? `<div class="header-twin">${twinButton(s, 'btn primary twin-btn')}</div>` : ''}</header>
     <div id="selection-body" ${state.cardCollapsed ? 'hidden' : ''}>
       ${s ? `<nav class="project-steps" aria-label="Feasibility screening workflow">${[['potential', 'Priority'], ['roof', 'Evidence'], ['brief', 'Handover']].map(([key, text], i) => `<button data-view="${key}" ${state.siteView === key ? 'aria-current="step"' : ''}><span>${i + 1}</span>${text}</button>`).join('')}</nav>
       ${state.siteView === 'roof' ? evidenceStep(s) : state.siteView === 'brief' ? briefStep(s) : siteCard(s)}` : zoneCard(state.selectedZone)}
@@ -863,7 +881,7 @@ function briefStep(s) {
   const layout = state.layouts[s.id] || state.scans[s.id]?.layout;
   return `<section class="workflow-section"><h3>Ready for a professional review</h3><p class="lede">Export this site's assumptions, evidence gaps and next action as a printable brief.</p>
     <p class="handover-state">${isShortlisted(s) ? 'Included in your study shortlist.' : 'This site is not in your study shortlist yet.'} ${s.excluded ? '<b>Excluded from the new-installation ranking.</b>' : ''}</p>
-    <dl class="brief-summary"><div><dt>Modelled system</dt><dd>${capacity(s.kwp)}${s.atapCapped ? `<br><small>${esc(capNote(s))}</small>` : ''}</dd></div><div><dt>Installation scenario</dt><dd>${rm(s.capex)}</dd></div><div><dt>Illustrative bill reduction</dt><dd>${s.economicsReady === false ? 'Host data required' : `${rm(s.savings)}/yr`}</dd></div><div><dt>Panel layout</dt><dd>${layout ? `${layout.count} panels · draft` : 'Optional · not generated'}</dd></div><div><dt>Existing panels</dt><dd>${esc(roofStatus(s).label)}</dd></div><div><dt>Property control</dt><dd>${esc(CONTROL_LABELS[s.studyReview?.control] || CONTROL_LABELS.unknown)}</dd></div><div><dt>Next action</dt><dd>${esc(s.studyReview?.nextAction || nextSiteCheck(s))}</dd></div></dl>
+    <dl class="brief-summary"><div><dt>Modelled system</dt><dd>${capacity(s.kwp)}${s.atapCapped ? `<br><small>${esc(capNote(s))}</small>` : ''}</dd></div><div><dt>Installation scenario</dt><dd>${rm(s.capex)}</dd></div><div><dt>Illustrative bill reduction</dt><dd>${s.economicsReady === false ? 'Host data required' : `${rm(s.savings)}/yr`}</dd></div><div><dt>Panel layout</dt><dd>${layout ? `${layout.count} panels · draft` : 'Optional · not generated'}</dd></div><div><dt>3D twin</dt><dd>${s.excluded ? 'Not needed' : `${esc(twinLevelText(s))} · <a href="${esc(twinUrl(s))}">open in 3D</a>${twinPlanOf(s) ? `<br><small>Twin draft: ${fmt(twinPlanOf(s).panels)} panels · ${fmt(twinPlanOf(s).kWp, 1)} kWp</small>` : ''}`}</dd></div><div><dt>Existing panels</dt><dd>${esc(roofStatus(s).label)}</dd></div><div><dt>Property control</dt><dd>${esc(CONTROL_LABELS[s.studyReview?.control] || CONTROL_LABELS.unknown)}</dd></div><div><dt>Next action</dt><dd>${esc(s.studyReview?.nextAction || nextSiteCheck(s))}</dd></div></dl>
     ${studyReviewForm(s)}
     ${shortlistActions(s)}
     <p class="note">Includes output, assumptions and mapped review flags. Roof structure, permissions and connection still need professional checks.</p>
@@ -877,12 +895,13 @@ function evidenceStep(s) {
   const roof = roofStatus(s);
   return `<section class="workflow-section"><h3>What needs checking here?</h3><p class="lede">${esc(s.studyReview?.nextAction || nextSiteCheck(s))}</p>
     <div class="site-alert ${s.excluded || roof.status === 'unclear' ? 'attention' : ''}"><b>${esc(roof.label)}</b><p>${esc(roof.note)}</p><small>${esc(roof.source)}</small></div>
+    <div class="twin-entry twin-verify"><h4>Verify in 3D</h4>${twinButton(s, 'btn primary twin-btn')}<p class="note"><b>${esc(twinLevelText(s))} twin.</b> ${droneTwinOf(s) ? 'A drone survey of this site is registered: measured roof planes and obstacles.' : 'Level 1 uses mapped footprints and estimated heights, with neighbours within 80 m for shading and a draft layout sized to the modelled kWp. Fly a drone to upgrade to Level 2 for surveyed-grade roof planes and obstacles.'}</p></div>
     ${solarCheckForm(s)}
     <dl class="evidence-rows"><div><dt>Usable roof area <span>${s.evidence?.usableM2 ? 'User-reported' : 'Assumed'}</span></dt><dd>${fmt(s.usable)} m² from ${s.evidence?.usableM2 ? 'a supplied source; independent measurement still needed' : 'a category fraction of the mapped footprint; survey needed'}.</dd></div><div><dt>Shading <span>${state.shadingReady ? 'Sampled model' : 'Pending'}</span></dt><dd>Four representative dates, estimated building heights. Trees, roof planes and equipment are not fully captured.</dd></div><div><dt>Electricity demand <span>${s.evidence?.annualKwh ? 'User-reported' : s.economicsReady === false ? 'Host missing' : 'Category proxy'}</span></dt><dd>${esc(s.demandSource)}. Bills and interval data must establish actual onsite use.</dd></div></dl>
     ${evidenceSection(s)}
     ${studyReviewForm(s)}
     <details><summary>All checks before proceeding</summary><ul class="study-checks">${studyChecks(s).map(check => `<li>${esc(check)}</li>`).join('')}</ul><p class="note">${scan ? 'A scan is available; its review is not structural approval.' : 'No drone scan is registered. A scan is optional for shortlisting.'}</p></details>
-    <details id="optional-roof-review" ${state.roofReviewOpen ? 'open' : ''}><summary>Optional roof scan &amp; draft layout</summary><div class="twin-entry"><a class="btn" href="${BASE}twin.html" target="_blank" rel="noopener">Open 3D digital twin (demo house)</a><p class="note">Phase 2: after shortlisting, a drone scan lets the planner verify roof planes, obstacles and a draft array. Demo on a team member's home, not an SDP site.</p></div>${droneSection(s, scan)}</details>
+    <details id="optional-roof-review" ${state.roofReviewOpen ? 'open' : ''}><summary>Drone survey (Level 2) &amp; draft layout</summary><div class="twin-entry"><a class="btn" href="${esc(demoTwinUrl())}">Open the demo drone twin (Level 2)</a><p class="note">A drone scan upgrades the twin to Level 2: the planner verifies roof planes, obstacles and a draft array from the survey. Demo on a team member's home, not an SDP site.</p></div>${droneSection(s, scan)}</details>
   </section>`;
 }
 
@@ -1431,7 +1450,8 @@ function openBrief(s, quotes = false) {
       assumptions: state.assumptions,
       battery: state.batteryOf.get(s),
       yieldSource: state.yieldData?.source,
-      quotes
+      quotes,
+      twin: s.excluded ? null : twinInfo(s)
     })
   });
 }
@@ -1570,7 +1590,7 @@ async function exportStudy(kind) {
   }
   if (!state.shadingReady) { setStatus('Wait for the shading calculation to finish before exporting.'); return; }
   if (kind === 'print') {
-    const html = studyBriefHTML(sites, { township: TOWNSHIPS[state.township].name, assumptions: state.assumptions, osmSnapshot: state.raw.fetchedAt, yieldSource: state.yieldData?.source || 'Fallback yield assumption' });
+    const html = studyBriefHTML(sites, { township: TOWNSHIPS[state.township].name, assumptions: state.assumptions, osmSnapshot: state.raw.fetchedAt, yieldSource: state.yieldData?.source || 'Fallback yield assumption', twinFor: twinInfo });
     openModal('Feasibility study shortlist', { html: html.replace('<h2>Model and data record</h2>', () => `${baselineBriefHTML()}<h2>Model and data record</h2>`) });
     return;
   }
@@ -1645,7 +1665,7 @@ function tourSteps() {
   return [
     { title: 'Choose the next site to study', text: 'Compare mapped rooftops and car parks by usable area, shading and electricity demand. Community solar and battery storage are visible supporting scenarios; this demo follows one site to handover.', go: overview },
     { title: 'Understand the recommendation', text: `${label(top)}: read the modelled output, area assumption and demand basis. Compare its evidence with the other candidates; close scores indicate similar priority.`, go: openSite },
-    { title: 'Inspect the roof and evidence', text: 'Check existing panels, geometry and electricity use. Open the optional roof review to inspect a prepared drone scan, generate a mapped draft or mark a blocked area. Show the resulting update rather than claiming automatic engineering approval.', go: () => { openSite(); setSiteView('roof'); } },
+    { title: 'Inspect the roof and evidence', text: 'Check existing panels, geometry and electricity use, then press “View in 3D twin”: a Level 1 twin built from the mapped footprint and neighbours within 80 m, with a draft panel layout sized to the modelled kWp, sun simulation and CAD dimensions. A drone scan upgrades it to Level 2. Neither is an engineering approval.', go: () => { openSite(); setSiteView('roof'); } },
     { title: 'Hand over a useful decision', text: 'Add this site to the study shortlist. Export a site brief or the combined shortlist with assumptions, source references and next checks. That is the main demo outcome; broader community and battery scenarios can follow briefly.', go: () => { openSite(); setSiteView('brief'); } }
   ];
 }
@@ -1801,7 +1821,11 @@ async function loadTownship(id, live = false) {
 
 async function init() {
   $('township').innerHTML = Object.entries(TOWNSHIPS).map(([k, t]) => `<option value="${k}">${t.name}</option>`).join('');
+  // Deep link (e.g. back from the 3D twin): index.html?town=<slug>&site=<osm id>
+  const urlParams = new URLSearchParams(location.search);
+  if (TOWNSHIPS[urlParams.get('town')]) state.township = urlParams.get('town');
   $('township').value = state.township;
+  state.twinRegistry = await fetch(`${BASE}twins/index.json`).then((r) => (r.ok && !/html/.test(r.headers.get('content-type') || '') ? r.json() : null)).then((j) => ({ sites: {}, demo: 'friend-house', ...(j || {}) })).catch(() => state.twinRegistry);
   $('township').onchange = (e) => loadTownship(e.target.value).catch(loadFailed);
   $('refresh').onclick = () => loadTownship(state.township, true).catch(loadFailed);
   $('basemap').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.b === 'map')));
@@ -1828,6 +1852,8 @@ async function init() {
     }
   }
   await loadTownship(state.township);
+  const linked = urlParams.get('site') && state.sites.find((x) => x.id === urlParams.get('site'));
+  if (linked) select(linked, true);
   state.droneProcessor = await droneHealth().catch(() => ({ ready: false }));
   if (state.selected) renderCard();
 }

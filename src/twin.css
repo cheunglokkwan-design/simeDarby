@@ -233,3 +233,23 @@ table .group td { color: var(--text); font-weight: 700; padding-top: 12px; borde
 #batteryInfo table.kv { width: 100%; font-size: 12px; border-collapse: collapse; margin: 6px 0; }
 #batteryInfo table.kv td { padding: 3px 0; border-bottom: 1px solid var(--line, #e5e7eb); }
 #batteryInfo table.kv td:last-child { text-align: right; }
+
+/* Level 1 (map-based) vs Level 2 (drone-scan) twins */
+.badge.phase.level1 { background: #e6f0fb; color: #1d4f8a; }
+.level-note { flex: 1 1 100%; margin: 0; font-size: 12px; color: var(--muted); line-height: 1.4; }
+.level-note b { color: var(--text); }
+.site-label { background: #b4532a; color: #fff; font: 600 11.5px/1.2 system-ui, sans-serif; padding: 3px 8px; border-radius: 999px; white-space: nowrap; pointer-events: none; box-shadow: 0 1px 4px rgb(0 0 0 / .35); }
+.key i.k-map { background: linear-gradient(90deg, #f1e3c8 50%, #8e949d 50%); }
+
+/* Energy loss waterfall (CAD tab) */
+.waterfall { display: grid; gap: 4px; font-size: 12px; margin-bottom: 8px; }
+.wf-row { display: grid; grid-template-columns: minmax(0, 7.5em) minmax(60px, 1fr) 6.6em; gap: 6px; align-items: center; }
+.wf-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.wf-track { position: relative; height: 12px; background: rgb(0 0 0 / .05); border-radius: 3px; }
+.wf-track i { position: absolute; top: 0; bottom: 0; border-radius: 3px; background: #22b8d8; min-width: 1px; }
+.wf-row.loss .wf-track i { background: #e0603c; }
+.wf-row.cal .wf-track i { background: #16a34a; }
+.wf-row.total .wf-name, .wf-row.cal .wf-name { font-weight: 600; }
+.wf-val { font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
+.wf-val { font-size: 11px; line-height: 1.15; }
+.wf-val small { display: block; color: var(--muted); font-size: 10px; }

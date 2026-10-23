@@ -2,6 +2,8 @@
 
 Sime Darby Property *Township of Tomorrow* hackathon (PLANET track: choosing the right sites for solar).
 
+**One pipeline for SDP planners: screen the township → shortlist → verify each site in 3D → hand over a study brief.**
+
 Solar Opportunity Mapper is a 3D web map that shows which rooftops and car parks in a township are
 worth putting solar on. It uses free, open data: building outlines and grid substations from
 OpenStreetMap, plus 19 years of hourly weather data. It covers every building in Ara Damansara and
@@ -70,13 +72,29 @@ of that last set. Select a site to keep its candidate list visible alongside **P
 | **Open roof registry** | Every roof per township as open GeoJSON under ODbL (`registry/`, `npm run registry`) |
 | **Google Solar comparison script (not run)** | Optional capacity check against Google's Solar API for 30 sampled homes (`scripts/google-solar-check.mjs`). It needs your own API key and has not been run: no comparison results exist in this repo |
 | **Drone scans** | Per-roof Gaussian splats registered in `public/splats/scans.json`, viewed in-app with our predicted outline and panel area overlaid, an Align tool and a findings checklist (see `docs/drone-scans.md`) |
-| **Digital twin (Phase 2, `twin.html`)** | After shortlisting, verify one roof from a drone scan: roof planes and obstacles detected from the scan, a strung, setback-respecting draft array, sun/shade simulation, battery location and CAD/DXF export. Demonstrated on a team member's home, not an SDP site (see below) |
+| **3D site twin (`twin.html`)** | Every non-excluded site card has **View in 3D twin**. Level 1 builds the site and its neighbours within 80 m from the mapped footprints (estimated heights, assumed roof shape) and plans a draft array sized to the map's modelled kWp; Level 2 is a drone-scan twin with measured roof planes and obstacles (demo: a team member's home, not an SDP site). Both share the same planner, sun/shade simulation, CAD/DXF export and "Back to shortlist" link |
 
-## Phase 2: digital twin (`twin.html`)
+## Step 3: verify each site in 3D (`twin.html`)
 
-Once the map has shortlisted sites, the twin shows how one shortlisted roof would be
-checked in detail from a drone scan. It is demonstrated on a team member's home, not an
-SDP site. Open it at `/twin.html` (it links back to the shortlist).
+- **Level 1 · map-based twin**: `twin.html?town=<slug>&site=<osm id>&kwp=<n>` (linked from
+  every site card and the Evidence step). `src/twin/procedural.js` extrudes the site and
+  every mapped building within 80 m: flat slabs with a parapet for business roofs (tilted
+  racks, 1 m setback), hip/gable roofs for landed homes, car parks as canopies. The planner
+  then lays out modules up to the map's modelled (capped) kWp, with neighbour shading,
+  live sun and CAD dimensions. A home also gets a wall battery; business sites show
+  "BESS / battery room: not placed in Level 1". The twin saves its draft layout
+  (panels, kWp) on this device and the study brief picks it up.
+- **Level 2 · drone-scan twin**: `twin.html?twin=friend-house`. Fly a drone to upgrade a
+  site to Level 2 for surveyed-grade roof planes and obstacles. `public/twins/index.json`
+  maps SDP site ids to scanned twins; the demo house has no SDP site id, so it is linked
+  as the "demo drone twin".
+
+Level 1 limits: heights come from OSM tags or category defaults, the roof shape is
+assumed and rooftop plant (chillers, tanks, skylights) and trees are not mapped, so the
+usable area and layout are screening drafts.
+
+The Level 2 demo is a team member's home, not an SDP site. Open it at
+`/twin.html?twin=friend-house` (it links back to the shortlist).
 
 - Detects roof planes, edges and obstacles (vents, tanks, dormers) from the scan's
   point cloud and a voxel occupancy grid.
@@ -110,8 +128,9 @@ roof review supports a mapped draft, blocked areas and 3D scans. Draft
 panel layouts and finished-splat imports work locally. Video reconstruction uses
 the included [remote GPU worker](docs/drone-worker.md), which needs hosting and
 server-side connection settings before footage can be processed. Township draft
-layouts use the mapped footprint; the Phase 2 digital twin (demo house only) detects
-roof planes and obstacles from a scan. Neither is a surveyed design.
+layouts use the mapped footprint; every site opens as a Level 1 3D twin, and the
+Level 2 drone twin (demo house only) detects roof planes and obstacles from a scan.
+Neither is a surveyed design.
 
 Community-solar boundaries are proposed geographic groups, with ownership and
 feeder checks pending. See the [zoning audit](docs/zoning-audit.md).

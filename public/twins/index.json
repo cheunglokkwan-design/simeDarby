@@ -1,0 +1,5 @@
+{
+  "about": "Level 2 (drone-scan) twin registry: SDP site id (OSM id) -> folder in public/twins/. Sites not listed open a Level 1 map-based twin. The demo house is a team member's home, not an SDP site, so it has no site id.",
+  "sites": {},
+  "demo": "friend-house"
+}

@@ -21,7 +21,10 @@ function footprintSVG(s, w = 300, h = 200, pad = 16) {
   </svg>`;
 }
 
-export function siteBriefHTML(s, { township, assumptions: a, battery, yieldSource, quotes = false }) {
+// 3D twin row: level, link and the draft layout last planned in the twin (if any).
+const twinText = (t) => !t ? 'Not opened' : `${esc(t.level)}${t.url ? ` · <a href="${esc(t.url)}">${esc(t.url)}</a>` : ''}${t.plan ? `<br>Twin draft layout: ${n(t.plan.panels)} panels · ${n(t.plan.kWp, 1)} kWp planned${Number.isFinite(t.plan.annualKwh) ? ` · ${n(t.plan.annualKwh / 1000, 1)} MWh/yr` : ''}${t.plan.mounting ? ` · ${esc(t.plan.mounting)}` : ''} (${esc(String(t.plan.at || '').slice(0, 10))})` : '<br>No twin layout saved yet'}`;
+
+export function siteBriefHTML(s, { township, assumptions: a, battery, yieldSource, quotes = false, twin = null }) {
   const p = siteProperties(s, a);
   const [lon, lat] = s.position;
   const rows = [
@@ -30,6 +33,7 @@ export function siteBriefHTML(s, { township, assumptions: a, battery, yieldSourc
     ['Height', `${n(s.height, 1)} m (${esc(s.heightSource)})`],
     ['Panels', `${n(p.panels)} × ${a.panelWatt} W`],
     ['System size', `${n(s.kwp, 1)} kWp${s.atapCapped ? ' (capped by Solar ATAP: 1 MW or peak demand)' : ''}`],
+    ...(twin ? [['3D twin', twinText(twin)]] : []),
     ['Unshaded share of sampled rays', `${n((s.energyShading ?? s.shading ?? 1) * 100)} %; four representative dates, estimated heights`],
     ['Specific yield (weather variability only)', `${n(s.specificYield)} kWh/kWp P50 · ${n(s.yieldP90)} P90`],
     ['Generation, year 1', `${n(s.kwh / 1000, 1)} MWh P50 · ${n(s.kwhP90 / 1000, 1)} MWh P90`],
@@ -96,7 +100,7 @@ Shading: line-of-sight raycast against neighbouring buildings. Tariffs, SMP, CAP
 </body></html>`;
 }
 
-export function studyBriefHTML(sites, { township, assumptions, osmSnapshot, yieldSource }) {
+export function studyBriefHTML(sites, { township, assumptions, osmSnapshot, yieldSource, twinFor = null }) {
   const summary = studySummary(sites);
   const title = 'Solar feasibility study shortlist';
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title}</title><style>
@@ -104,6 +108,6 @@ body{font:14px/1.55 system-ui,sans-serif;color:#20272b;max-width:1000px;margin:3
 </style></head><body><button onclick="print()">Save study brief as PDF / print</button><h1>${title}</h1><p>${esc(township)} · ${new Date().toISOString().slice(0, 10)}</p><p class="note">Screening handover, not an approved design or quotation. Saved selections may include sites that have since been excluded. Professional assessment and independent shortlist validation remain pending.</p>
 <div class="summary"><b>${summary.active} active candidates · ${n(summary.kwp / 1000, 2)} MWp · ${n(summary.kwh / 1000)} MWh/year</b><p>Illustrative installation cost: RM ${n(summary.capex)} · modelled avoided emissions: ${n(summary.co2)} t/year.</p><p class="note">Totals omit ${summary.excluded} excluded and ${summary.onHold} on-hold sites. ${summary.unresolvedSolar} active sites need existing-panel checks; ${summary.unknownControl} need property-control confirmation; ${summary.unresolvedEconomics} need host-load data. Installation cost is not the study budget.</p></div>
 <h2>Selected sites</h2><div class="table-wrap"><table><thead><tr><th>Site / priority</th><th>Modelled output</th><th>Evidence status</th><th>Next action</th></tr></thead><tbody>${sites.map(s => `<tr><td><b>${esc(s.name || s.categoryLabel)}</b><br>${esc(s.id)}<br>${n(s.score)}/100${s.excluded ? '<br><b class="excluded">Excluded from new-installation ranking</b>' : ''}</td><td>${n(s.kwp, 1)} kWp<br>${n(s.kwh / 1000)} MWh/year<br>${s.economicsReady === false ? 'Host financial data missing' : 'Financial inputs are illustrative'}</td><td>${esc(roofStatus(s).label)}<br>${esc(CONTROL_LABELS[s.studyReview?.control] || CONTROL_LABELS.unknown)}</td><td>${esc(s.studyReview?.nextAction || nextSiteCheck(s))}<br>${esc(s.studyReview?.responsible || 'Unassigned')} · ${esc(STAGE_LABELS[s.studyReview?.stage] || STAGE_LABELS.screening)}</td></tr>`).join('')}</tbody></table></div>
-${sites.map(s => `<section><h2>${esc(s.name || s.categoryLabel)}</h2><p><a href="https://www.openstreetmap.org/${esc(s.id)}">${esc(s.id)}</a> · ${esc(s.categoryLabel)}</p><p><b>Existing panels:</b> ${esc(roofStatus(s).note)}<br><span class="note">${esc(roofStatus(s).source)}</span></p><p><b>Selection rationale:</b> ${esc(s.studyReview?.rationale || 'Not recorded')}<br><b>Next action:</b> ${esc(s.studyReview?.nextAction || nextSiteCheck(s))}<br><b>Reference:</b> ${esc(s.studyReview?.reference || 'Not recorded')}<br><b>Asset / project:</b> ${esc(s.studyReview?.assetId || 'Not recorded')}</p>${s.studyReview?.selectedAt ? `<p class="note">First selected ${esc(s.studyReview.selectedAt.slice(0,10))}: model priority ${n(s.studyReview.selectedScore,1)}, ${n(s.studyReview.selectedKwh / 1000)} MWh/year. Current values may differ after recalculation.</p>` : ''}<h3>Evidence and remaining checks</h3><ul>${studyChecks(s).map(check => `<li>${esc(check)}</li>`).join('')}</ul></section>`).join('')}
+${sites.map(s => `<section><h2>${esc(s.name || s.categoryLabel)}</h2><p><a href="https://www.openstreetmap.org/${esc(s.id)}">${esc(s.id)}</a> · ${esc(s.categoryLabel)}</p><p><b>Existing panels:</b> ${esc(roofStatus(s).note)}<br><span class="note">${esc(roofStatus(s).source)}</span></p><p><b>Selection rationale:</b> ${esc(s.studyReview?.rationale || 'Not recorded')}<br><b>Next action:</b> ${esc(s.studyReview?.nextAction || nextSiteCheck(s))}<br><b>Reference:</b> ${esc(s.studyReview?.reference || 'Not recorded')}<br><b>Asset / project:</b> ${esc(s.studyReview?.assetId || 'Not recorded')}</p>${twinFor && !s.excluded ? `<p><b>3D twin:</b> ${twinText(twinFor(s))}</p>` : ''}${s.studyReview?.selectedAt ? `<p class="note">First selected ${esc(s.studyReview.selectedAt.slice(0,10))}: model priority ${n(s.studyReview.selectedScore,1)}, ${n(s.studyReview.selectedKwh / 1000)} MWh/year. Current values may differ after recalculation.</p>` : ''}<h3>Evidence and remaining checks</h3><ul>${studyChecks(s).map(check => `<li>${esc(check)}</li>`).join('')}</ul></section>`).join('')}
 <h2>Model and data record</h2><p class="note">OSM snapshot: ${esc(osmSnapshot || 'Not recorded')}. Yield source: ${esc(yieldSource)}. Shadow exposure samples four dates against estimated buildings and is a screening proxy applied to yield, not measured annual irradiation. Actual roof planes, trees, equipment, interval demand, structure and permissions require site assessment. No completed independent expert comparison is claimed.</p><details><summary>All scenario assumptions</summary></details><table><thead><tr><th>Assumption</th><th>Value</th></tr></thead><tbody>${Object.entries(assumptions).map(([key, value]) => `<tr><td>${esc(key)}</td><td>${esc(value)}</td></tr>`).join('')}</tbody></table></body></html>`;
 }

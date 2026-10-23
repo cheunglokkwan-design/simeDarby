@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Solar Opportunity Mapper</title>
+    <meta name="description" content="For Sime Darby Property planners: screen the township → shortlist → verify each site in 3D → hand over a study brief." />
     <link rel="stylesheet" href="/src/style.css" />
     <link rel="stylesheet" href="/src/workspace.css" />
   </head>
@@ -81,11 +82,11 @@
       </section>
       <section data-settings-panel="scans" hidden>
         <h3>Add a scan to a roof</h3>
-        <p class="note">Choose a property, open its <b>Evidence</b> step, then <b>Optional roof scan &amp; draft layout</b>. Import a Gaussian splat or process footage when a GPU worker is connected.</p>
+        <p class="note">Choose a property, open its <b>Evidence</b> step, then <b>Drone survey (Level 2) &amp; draft layout</b>. Import a Gaussian splat or process footage when a GPU worker is connected.</p>
         <button id="chooseScanRoof" class="btn primary">Choose a property</button>
         <p class="note">Scans and review notes are saved on this device. Keep your original files.</p>
-        <p><a class="btn primary" href="twin.html" target="_blank" rel="noopener">Open digital twin (demo house)</a></p>
-        <p class="note">Drone-scanned house with a simulated rooftop array: sun by time of day, CAD dimensions and why each panel was placed.</p>
+        <p><a class="btn primary" href="twin.html?twin=friend-house" target="_blank" rel="noopener">Open the demo drone twin (Level 2)</a></p>
+        <p class="note">Drone-scanned house (a team member's home, not an SDP site) with a simulated rooftop array: sun by time of day, CAD dimensions and why each panel was placed. Every mapped site also opens a Level 1 twin from its card: “View in 3D twin”.</p>
         <details class="more"><summary>Try the 3D viewer</summary><p class="note">Uses the local demo scan when available, otherwise a public test scene. Neither validates an SDP roof.</p><button id="sampleScan" class="btn">Open sample / local demo</button></details>
       </section>
     </dialog>

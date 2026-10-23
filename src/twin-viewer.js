@@ -12,12 +12,21 @@ import { CSS2DRenderer, CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRe
 import * as mock from './twin-mock.js';
 import { placeBattery } from './twin/battery.js';
 import * as GaussianSplats3D from '@mkkellogg/gaussian-splats-3d';
+import { buildSites } from './solar.js';
 
 const $ = (id) => document.getElementById(id);
 const BASE = import.meta.env.BASE_URL;
 const params = new URLSearchParams(location.search);
 const TWIN_ID = (params.get('twin') || 'friend-house').replace(/[^\w-]/g, '');
 const FORCE_MOCK = params.has('mock');
+// Level 1 map-based twin: twin.html?town=<slug>&site=<osm id>[&kwp=<n>] builds the
+// site and its neighbours from the township's mapped footprints (src/twin/procedural.js).
+const MAP_TOWN = (params.get('town') || '').replace(/[^\w-]/g, '');
+const MAP_SITE = (params.get('site') || '').slice(0, 80);
+const MAP_MODE = !!(MAP_TOWN && MAP_SITE) && !params.has('twin');
+const MAP_KWP = Number(params.get('kwp'));
+const NEIGHBOUR_RADIUS_M = 80;
+const mapBackUrl = () => `${BASE}?town=${encodeURIComponent(MAP_TOWN)}&site=${encodeURIComponent(MAP_SITE)}`;
 const DEG = Math.PI / 180;
 const fmt = (v, d = 0) => (Number.isFinite(v) ? v.toLocaleString('en-MY', { maximumFractionDigits: d, minimumFractionDigits: d }) : '–');
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -55,8 +64,8 @@ async function loadApi() {
     if (!f || FORCE_MOCK) return null;
     try { return await f(); } catch (e) { warnOnce(name, `twin: src/twin/${name}.js failed to load; using the built-in fallback.`, e); return null; }
   };
-  const [placement, sun, shade, catalogue] = await Promise.all(['placement', 'sun', 'shade', 'catalogue'].map(load));
-  const api = { placement, sun, shade, catalogue, real: {} };
+  const [placement, sun, shade, catalogue, irradiance] = await Promise.all(['placement', 'sun', 'shade', 'catalogue', 'irradiance'].map(load));
+  const api = { placement, sun, shade, catalogue, irradiance, real: {} };
   api.real.placement = typeof placement?.planArray === 'function';
   api.real.sun = typeof sun?.sunPosition === 'function';
   const cataloguePanels = Array.isArray(catalogue?.PANELS) ? catalogue.PANELS : catalogue?.PANELS && typeof catalogue.PANELS === 'object' ? Object.values(catalogue.PANELS) : null;
@@ -200,6 +209,36 @@ async function loadTwin() {
   }
 }
 
+// Level 1: the shortlisted site and every mapped building within 80 m, from the
+// township snapshot the map uses. Footprints are OSM; heights are estimated.
+function bboxGap(a, b) {
+  const dx = Math.max(0, a[0] - b[2], b[0] - a[2]), dy = Math.max(0, a[1] - b[3], b[1] - a[3]);
+  return Math.hypot(dx, dy);
+}
+const boxOf = (xy) => xy.reduce((b, [x, y]) => [Math.min(b[0], x), Math.min(b[1], y), Math.max(b[2], x), Math.max(b[3], y)], [Infinity, Infinity, -Infinity, -Infinity]);
+async function loadMapTwin() {
+  const r = await fetch(`${BASE}data/${MAP_TOWN}.json`);
+  if (!r.ok || /html/.test(r.headers.get('content-type') || '')) throw new Error(`township data “${MAP_TOWN}” not found`);
+  const raw = await r.json();
+  const { sites, origin } = buildSites(raw);
+  const site = sites.find((s) => s.id === MAP_SITE);
+  if (!site) throw new Error(`site ${MAP_SITE} is not in the ${MAP_TOWN} snapshot`);
+  const sb = boxOf(site.xy);
+  const neighbours = sites.filter((s) => s !== site && s.category !== 'carpark' && bboxGap(sb, boxOf(s.xy)) <= NEIGHBOUR_RADIUS_M);
+  const base = { kind: 'map', site, neighbours, origin, town: MAP_TOWN, points: new Float32Array(0), normals: null };
+  const load = realModules['./twin/procedural.js'];
+  if (!load || FORCE_MOCK) return { ...base, pending: true };
+  const mod = await load();
+  if (typeof mod.buildSiteTwin !== 'function') return { ...base, pending: true };
+  const t0 = performance.now();
+  const out = await mod.buildSiteTwin(site, neighbours, { lat: site.position[1], lon: site.position[0], origin, town: MAP_TOWN, radius: NEIGHBOUR_RADIUS_M, targetKwp: Number.isFinite(MAP_KWP) ? MAP_KWP : undefined });
+  const o = out.occupancy;
+  return {
+    ...base, real: true, twin: out.twin, meshes: out.meshes || { buildings: [] }, notes: out.notes || [], planHints: out.planOptions || out.twin?.planDefaults || {},
+    occupancy: o?.data ? mock.makeOccupancy(o, o.data) : null, buildMs: performance.now() - t0
+  };
+}
+
 // ------------------------------------------------------------------ state
 const state = {
   api: null, data: null, twin: null, occ: null,
@@ -212,6 +251,8 @@ const state = {
   sunlit: [], nowKw: 0, sky: 'typical',
   centre: new THREE.Vector3(), radius: 15, groundY: 0
 };
+const isMap = () => state.data?.kind === 'map';
+const isMapHome = () => isMap() && state.data.site?.category === 'residential';
 
 // ------------------------------------------------------------------ three
 const canvas = $('gl');
@@ -516,6 +557,141 @@ function buildRoofOutlines() {
       groups.roofs.add(new THREE.Line(og, new THREE.LineBasicMaterial({ color: 0xff8a7a, transparent: true, opacity: 0.8 })));
     }
   }
+}
+
+// ------------------------------------------------------------------ Level 1 buildings
+// Extruded mapped footprints: the site in a warm light tone with its roof shape,
+// neighbours in neutral grey, flat roofs with a parapet. Lives in groups.scan.
+function ringOf(fp) {
+  const pts = fp.filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]));
+  if (pts.length > 2 && pts[0][0] === pts.at(-1)[0] && pts[0][1] === pts.at(-1)[1]) pts.pop();
+  return pts;
+}
+function pitchedRoofGeometry(fp, eave, ridge, type) {
+  // Collapse the footprint onto its long axis: gable keeps the ridge full length,
+  // hip shortens it by the half-width so the ends slope too.
+  let best = 0, u = [1, 0];
+  for (let i = 0; i < fp.length; i++) {
+    const a = fp[i], b = fp[(i + 1) % fp.length], l = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (l > best) { best = l; u = [(b[0] - a[0]) / l, (b[1] - a[1]) / l]; }
+  }
+  const v = [-u[1], u[0]];
+  const pa = fp.map((p) => p[0] * u[0] + p[1] * u[1]), pb = fp.map((p) => p[0] * v[0] + p[1] * v[1]);
+  const amin = Math.min(...pa), amax = Math.max(...pa), bmin = Math.min(...pb), bmax = Math.max(...pb);
+  const half = (bmax - bmin) / 2, bm = (bmin + bmax) / 2;
+  const top = pa.map((a) => {
+    const a2 = type === 'gable' ? a : amax - amin > 2 * half ? clamp(a, amin + half, amax - half) : (amin + amax) / 2;
+    return [a2 * u[0] + bm * v[0], a2 * u[1] + bm * v[1]];
+  });
+  const pos = [];
+  for (let i = 0; i < fp.length; i++) {
+    const j = (i + 1) % fp.length;
+    const p0 = [fp[i][0], eave, fp[i][1]], p1 = [fp[j][0], eave, fp[j][1]], t1 = [top[j][0], ridge, top[j][1]], t0 = [top[i][0], ridge, top[i][1]];
+    pos.push(...p0, ...p1, ...t1, ...p0, ...t1, ...t0);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.computeVertexNormals();
+  return g;
+}
+function wallStrip(fp, y0, y1) {
+  const pos = [];
+  for (let i = 0; i < fp.length; i++) {
+    const a = fp[i], b = fp[(i + 1) % fp.length];
+    pos.push(a[0], y0, a[1], b[0], y0, b[1], b[0], y1, b[1], a[0], y0, a[1], b[0], y1, b[1], a[0], y1, a[1]);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.computeVertexNormals();
+  return g;
+}
+function buildBuildings() {
+  const list = state.data.meshes?.buildings || [];
+  const gy = state.groundY;
+  const M = {
+    site: new THREE.MeshStandardMaterial({ color: 0xf1e3c8, roughness: 0.85 }),
+    siteRoof: new THREE.MeshStandardMaterial({ color: 0xdcc39a, roughness: 0.8, side: THREE.DoubleSide }),
+    nb: new THREE.MeshStandardMaterial({ color: 0x8e949d, roughness: 0.92 }),
+    nbRoof: new THREE.MeshStandardMaterial({ color: 0x9da3ab, roughness: 0.9, side: THREE.DoubleSide }),
+    edge: new THREE.LineBasicMaterial({ color: 0x1d222b, transparent: true, opacity: 0.45 })
+  };
+  M.siteCap = new THREE.MeshStandardMaterial({ color: 0xe4d5b8, roughness: 0.9 });
+  M.nbCap = new THREE.MeshStandardMaterial({ color: 0xa5abb2, roughness: 0.92 });
+  M.parapet = new THREE.MeshStandardMaterial({ color: 0xc4ad86, roughness: 0.85, side: THREE.DoubleSide });
+  M.nbParapet = new THREE.MeshStandardMaterial({ color: 0x7d838c, roughness: 0.92, side: THREE.DoubleSide });
+  // ground: a soft site-coloured plane that takes building shadows
+  const R = Math.max(state.radius * 3, NEIGHBOUR_RADIUS_M * 1.6);
+  const ground = new THREE.Mesh(new THREE.CircleGeometry(R, 64), new THREE.MeshStandardMaterial({ color: 0x3a4232, roughness: 1 }));
+  ground.rotation.x = -Math.PI / 2; ground.position.set(state.centre.x, gy - 0.02, state.centre.z);
+  ground.receiveShadow = true;
+  groups.scan.add(ground);
+  for (const b of list) {
+    const fp = ringOf(b.footprint || []);
+    if (fp.length < 3) continue;
+    const site = !!b.isSite;
+    const h = Math.max(1, num(b.height, 6));
+    const roof = b.roof || { type: 'flat' };
+    const shape = new THREE.Shape(fp.map(([x, z]) => new THREE.Vector2(x, -z)));
+    // car-park canopy: a slab on (unmodelled) columns; buildings: walls from the ground
+    const y0 = roof.canopy ? Math.max(0, h - num(roof.thicknessM, 0.3)) : num(b.base, 0);
+    const geo = new THREE.ExtrudeGeometry(shape, { depth: Math.max(0.1, h - y0), bevelEnabled: false });
+    geo.rotateX(-Math.PI / 2); geo.translate(0, gy + y0, 0);
+    const body = new THREE.Mesh(geo, site ? [M.siteCap, M.site] : [M.nbCap, M.nb]); // ExtrudeGeometry groups: 0 caps, 1 walls
+    body.castShadow = body.receiveShadow = true;
+    groups.scan.add(body, new THREE.LineSegments(new THREE.EdgesGeometry(geo, 30), M.edge));
+    if (roof.type === 'hip' || roof.type === 'gable') {
+      const eave = gy + num(roof.eaveHeight, h);
+      const ridge = gy + Math.max(eave - gy + 0.3, num(roof.ridgeHeight, h + 2));
+      // generic hip/gable over the roof rectangle (gives the gable end walls);
+      // the planner's exact faces are drawn on top where the builder provides them
+      const rg = pitchedRoofGeometry(ringOf(roof.rect || fp), eave, ridge, roof.type);
+      const rm = new THREE.Mesh(rg, roof.faces?.length ? (site ? M.parapet : M.nbParapet) : site ? M.siteRoof : M.nbRoof);
+      rm.castShadow = rm.receiveShadow = true;
+      groups.scan.add(rm);
+      if (roof.faces?.length) {
+        const pos = [];
+        for (const f of roof.faces) for (let i = 1; i + 1 < f.length; i++) pos.push(...f[0], ...f[i], ...f[i + 1]);
+        const fg = new THREE.BufferGeometry(); fg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); fg.computeVertexNormals();
+        const mat = (site ? M.siteRoof : M.nbRoof).clone(); mat.polygonOffset = true; mat.polygonOffsetFactor = -1; mat.polygonOffsetUnits = -1;
+        const fm = new THREE.Mesh(fg, mat); fm.castShadow = fm.receiveShadow = true;
+        groups.scan.add(fm);
+        for (const f of roof.faces) groups.scan.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(f.map(V3)), M.edge));
+      } else groups.scan.add(new THREE.LineSegments(new THREE.EdgesGeometry(rg, 20), M.edge));
+    } else {
+      const p = num(roof.parapetM, site ? 0.9 : 0.6);
+      if (p > 0) {
+        const pg = wallStrip(fp, gy + h, gy + h + p);
+        const pm = new THREE.Mesh(pg, site ? M.parapet : M.nbParapet);
+        pm.castShadow = true;
+        groups.scan.add(pm);
+        const top = fp.map(([x, z]) => new THREE.Vector3(x, gy + h + p, z));
+        groups.scan.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(top), M.edge));
+      }
+    }
+    if (site) {
+      const c = fp.reduce((a, q) => [a[0] + q[0] / fp.length, a[1] + q[1] / fp.length], [0, 0]);
+      const top = roof.type === 'flat' || !roof.type ? h + num(roof.parapetM, 0.9) : Math.max(h, num(roof.ridgeHeight, h));
+      groups.scan.add(label(state.data.site?.name || 'Site', 'site-label', new THREE.Vector3(c[0], gy + top + 2.5, c[1])));
+    }
+  }
+  // Real sun shadows between buildings (the scan twin shades its points instead).
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  sunLight.castShadow = true;
+  const S = Math.max(40, state.radius * 2.2);
+  Object.assign(sunLight.shadow.camera, { left: -S, right: S, top: S, bottom: -S, near: 1, far: 600 });
+  sunLight.shadow.camera.updateProjectionMatrix();
+  sunLight.shadow.mapSize.set(2048, 2048);
+  sunLight.shadow.bias = -0.0005;
+  sunLight.shadow.normalBias = 0.05;
+}
+function meshBounds() {
+  const bb = new THREE.Box3();
+  for (const b of state.data.meshes?.buildings || []) for (const [x, z] of ringOf(b.footprint || [])) {
+    bb.expandByPoint(_a.set(x, state.groundY, z));
+    bb.expandByPoint(_a.set(x, state.groundY + num(b.roof?.ridgeHeight, b.height, 6), z));
+  }
+  return bb;
 }
 
 // ------------------------------------------------------------------ textures
@@ -997,7 +1173,7 @@ function updateSun() {
   const S = V3(sp.s);
   if (sunSprite) { sunSprite.position.copy(c).addScaledVector(S, sunDistance()); sunSprite.visible = sp.elevation > -2; }
   const day = clamp((sp.elevation + 4) / 16, 0, 1);
-  sunLight.position.copy(c).addScaledVector(S, 40);
+  sunLight.position.copy(c).addScaledVector(S, isMap() ? 200 : 40);
   sunLight.target.position.copy(c);
   sunLight.intensity = sp.elevation > 0 ? 0.6 + 2.2 * Math.sin(sp.elevation * DEG) : 0;
   hemi.intensity = 0.35 + 0.6 * day;
@@ -1112,7 +1288,9 @@ function planOptions(orientation) {
     fluxThreshold: o.fluxThreshold || 0, minFluxKwhM2: o.fluxThreshold || 0,
     heatmap: state.heat, northOffsetDeg: bearing(), azimuthOffsetDeg: state.north, lat: state.lat, lon: state.lon,
     standoffM: mountStandoff(), gapM: mountInfo()?.gapM ?? 0.02,
-    mountingKgPerPanel: (mountInfo()?.rackingKgM2 ?? 3) * currentPanel().lengthMm * currentPanel().widthMm / 1e6
+    mountingKgPerPanel: (mountInfo()?.rackingKgM2 ?? 3) * currentPanel().lengthMm * currentPanel().widthMm / 1e6,
+    // Level 1 twins: the procedural builder's planner hints (coarser grids on big roofs)
+    ...(isMap() ? Object.fromEntries(Object.entries(state.data.planHints || {}).filter(([k]) => k !== 'mounting')) : {})
   };
 }
 let planTimer = 0, planSeq = 0, heatDirty = true;
@@ -1130,7 +1308,7 @@ async function runPlan() {
   try {
     const twin = planTwin();
     if (heatDirty || !state.heat) {
-      state.heat = await state.api.heatmap(twin, state.occ, { cell: 0.5, northOffsetDeg: bearing(), northBearing: bearing(), lat: state.lat, lon: state.lon });
+      state.heat = await state.api.heatmap(twin, state.occ, { cell: (isMap() && state.data.planHints?.fluxCell) || 0.5, northOffsetDeg: bearing(), northBearing: bearing(), lat: state.lat, lon: state.lon });
       heatDirty = false;
       const fmax = Math.ceil((state.heat?.max || 1600) / 50) * 50;
       $('flux').max = String(fmax);
@@ -1163,6 +1341,67 @@ function applyPlan(plan) {
   scheduleDayTotal();
   renderSummary(); renderCad(); renderPanelPick();
   if (state.selected) renderModuleDetail();
+  if (isMap()) saveTwinPlan(plan);
+  renderWaterfall();
+}
+// Energy loss waterfall: STC DC from unshaded plane-of-array irradiance, then
+// shading, temperature, the fixed loss chain and a residual (optics, clipping),
+// ending at the planner's annual AC kWh and the ground-calibrated headline.
+const LOSS_LABEL = { soiling: 'Soiling', mismatch: 'Mismatch', dcWiring: 'DC wiring', acWiring: 'AC wiring', lid: 'LID', lowIrradiance: 'Low light' };
+function lossChain() {
+  const L = state.api.catalogue?.LOSSES || {};
+  const d = (k, def) => num(L[k], def);
+  const steps = [['soiling', d('soiling', 0.02)], ['mismatch', d('mismatch', 0.02)], ['dcWiring', d('dcWiring', 0.015)], ['acWiring', d('acWiring', 0.005)], ['lid', d('lid', 0.01)], ['lowIrradiance', d('lowIrradiance', 0.01)]].map(([k, v]) => [LOSS_LABEL[k], v]);
+  steps.push(['Inverter', 1 - d('inverterEff', 0.97)], ['Availability', 1 - d('availability', 0.99)]);
+  let derate = steps.reduce((a, [, f]) => a * (1 - f), 1);
+  try { const r = state.api.irradiance?.systemDerate?.(state.api.catalogue?.LOSSES); if (Number.isFinite(r) && r > 0 && r <= 1) derate = r; } catch { /* keep computed */ }
+  return { steps, derate };
+}
+function renderWaterfall() {
+  const box = $('lossWaterfall');
+  if (!box) return;
+  const plan = state.plan, s = plan?.summary || {}, P = plan?.panels || [];
+  if (!P.length) { box.innerHTML = '<p class="note">No modules planned.</p>'; return; }
+  const pn = currentPanel(), area = pn.lengthMm * pn.widthMm / 1e6, eff = num(pn.efficiency, pn.wattPeak / (area * 1000));
+  const poa0 = P.reduce((a, p) => a + num(p.poaUnshadedKwhM2, p.poaKwhM2, 0), 0), poa = P.reduce((a, p) => a + num(p.poaKwhM2, 0), 0);
+  const stc = poa0 * area * eff;
+  if (!(stc > 0)) { box.innerHTML = '<p class="note">The planner did not report irradiance for this layout.</p>'; return; }
+  const ac = num(s.annualKwh, P.reduce((a, p) => a + (p.annualKwh || 0), 0));
+  const shadeF = poa0 > 0 && poa <= poa0 ? 1 - poa / poa0 : num(s.avgShadeLoss, 0);
+  const rows = [];
+  let e = stc;
+  const step = (name, frac, note) => { const loss = e * frac; rows.push({ name, loss, frac, note }); e -= loss; };
+  step('Shading', shadeF, 'neighbours and roof edges, from the twin’s occupancy grid');
+  step('Temperature', num(s.thermalLoss, 0), Number.isFinite(s.meanCellTempC) ? `mean cell ${fmt(s.meanCellTempC, 0)} °C` : 'Faiman model');
+  const { steps, derate } = lossChain();
+  const chainF = 1 - derate, before = e;
+  for (const [n, f] of steps) step(n, f);
+  e = before * derate; // use the planner's exact derate for the subtotal
+  const resid = e - ac;
+  if (Math.abs(resid) > 0.5) rows.push({ name: resid > 0 ? 'Optics & other' : 'Model rounding', loss: resid, frac: resid / e, note: 'angle-of-incidence optics and other planner effects: residual to the planner total' });
+  const cal = num(s.yield?.groundCalibratedKwh, s.yield?.calibratedKwh);
+  const W = (v) => `${clamp((v / stc) * 100, 0, 100).toFixed(2)}%`;
+  const bar = (name, val, cls, pct, note, start = 0) => `<div class="wf-row ${cls}"><span class="wf-name" title="${escapeHtml(note || '')}">${escapeHtml(name)}</span><span class="wf-track"><i style="left:${W(start)};width:${W(Math.abs(val))}"></i></span><span class="wf-val">${cls === 'loss' ? '−' : ''}${fmt(Math.abs(val))} kWh${pct != null ? ` <small>${pct}</small>` : ''}</span></div>`;
+  let run = stc;
+  const stcNote = `${fmt(poa0 / P.length)} kWh/m² unshaded POA × ${fmt(P.length * area, 0)} m² × ${fmt(eff * 100, 1)}% efficiency`;
+  const html = [bar('STC DC', stc, 'total', null, stcNote)];
+  for (const r of rows) { run -= r.loss; html.push(bar(r.name, r.loss, 'loss', `${fmt(r.frac * 100, 1)}%`, r.note, run)); }
+  html.push(bar('AC output / yr', ac, 'total', `PR ${fmt(ac / stc * 100, 0)}%`));
+  if (Number.isFinite(cal)) html.push(bar('Ground-calibrated', cal, 'cal', `×${fmt(cal / ac, 2)}`, s.yield?.note));
+  box.innerHTML = `${html.join('')}<p class="note">STC DC = ${stcNote}. Year 1. Fixed chain ${fmt(chainF * 100, 1)}% (${steps.map(([n, f]) => `${n.toLowerCase()} ${fmt(f * 100, 1)}%`).join(', ')}). The calibrated row scales NASA POWER irradiance to Klang Valley ground stations.</p>`;
+}
+// Hand the draft layout back to the township map's study brief (same origin, this device only).
+function saveTwinPlan(plan) {
+  try {
+    const s = plan.summary || {};
+    const all = JSON.parse(localStorage.getItem('solar.twinPlans') || '{}');
+    all[`${MAP_TOWN}|${MAP_SITE}`] = {
+      level: 1, panels: num(s.panels, plan.panels.length), kWp: num(s.kWp, plan.panels.length * currentPanel().wattPeak / 1000),
+      annualKwh: num(s.yield?.calibratedKwh, s.annualKwh), mounting: state.opts.mounting === 'tilted' ? `tilted racks ${state.opts.tiltDeg}°` : 'flush rails',
+      panel: currentPanel().label, at: new Date().toISOString()
+    };
+    localStorage.setItem('solar.twinPlans', JSON.stringify(all));
+  } catch { /* storage unavailable: the brief just omits the twin layout */ }
 }
 
 // ------------------------------------------------------------------ battery
@@ -1173,6 +1412,7 @@ let batteryMesh = null;
 function buildBattery() {
   clearGroup(groups.battery);
   batteryMesh = null; state.battery = null;
+  if (isMap() && !isMapHome()) { renderBattery('BESS / battery room: not placed in Level 1. A commercial battery needs a plant room or external pad sized with the electrical design; mark a location during the site survey.'); return; }
   if (!state.data?.real || !state.occ || !state.plan?.panels.length) { renderBattery(); return; }
   let r;
   try { r = placeBattery(state.twin, state.occ, state.plan, { northBearing: state.north, lat: state.lat, lon: state.lon }); }
@@ -1304,6 +1544,21 @@ function renderSummary() {
   const t = state.twin, sc = t.scale || {};
   const planAssump = (state.plan?.summary?.assumptions || []).map((a) => (typeof a === 'string' ? a : a.text || JSON.stringify(a)));
   const hasScale = planAssump.some((a) => /scale/i.test(a)), hasLoc = planAssump.some((a) => /^Location/i.test(a));
+  if (isMap()) {
+    const d = state.data;
+    $('assumptionList').innerHTML = [
+      `<b>Level 1 map-based twin:</b> ${escapeHtml(d.site?.name || d.site?.id)} and ${d.neighbours.length} mapped buildings within ${NEIGHBOUR_RADIUS_M} m, from the OpenStreetMap footprints the township map uses. Heights and roof shapes are estimated, not surveyed.`,
+      ...(d.notes || []).map((n) => `<b>Level 1:</b> ${escapeHtml(typeof n === 'string' ? n : n.text || JSON.stringify(n))}`),
+      `<b>Location:</b> ${fmt(state.lat, 4)}° N, ${fmt(state.lon, 4)}° E from the mapped footprint; north is true north (map-aligned).`,
+      Number.isFinite(MAP_KWP) ? `<b>System size:</b> targeted at the map’s modelled ${fmt(MAP_KWP, 1)} kWp (capped capacity); change it under Design.` : null,
+      pitchText(),
+      ...planAssump.map((a) => `<b>Model:</b> ${escapeHtml(a)}`),
+      `<b>Algorithms:</b> twin src/twin/procedural.js, planner ${state.api.real.placement ? 'src/twin/placement.js' : 'built-in fallback'}, sun ${state.api.real.sun ? 'src/twin/sun.js' : 'built-in NOAA-style'}, catalogue ${state.api.real.catalogue ? 'src/twin/catalogue.js' : 'built-in indicative datasheets'}.`,
+      '<b>Upgrade to Level 2:</b> fly a drone survey for surveyed-grade roof planes, rooftop plant, trees and obstacles; Level 1 cannot see HVAC units, skylights or water tanks.',
+      '<b>Not an engineering certificate:</b> roof structure, waterproofing and wind loads need an installer survey (MS 1837, SEDA NEM rules).'
+    ].filter(Boolean).map((i) => `<li>${i}</li>`).join('');
+    return;
+  }
   const items = [
     hasScale ? null : `<b>Scale:</b> ${sc.metresPerUnit ? `${fmt(sc.metresPerUnit, 4)} m per scan unit` : 'unknown'}${sc.method ? `, ${escapeHtml(sc.method)}` : ''} (confidence: <b>${escapeHtml(sc.confidence || 'unknown')}</b>). Dimensions inherit this uncertainty.`,
     hasLoc ? null : `<b>Location assumed:</b> ${escapeHtml(t.location?.name || 'not given')} at ${fmt(state.lat, 4)}° N, ${fmt(state.lon, 4)}° E, UTC+${state.tz}. The scan has no GPS; change it under Site.`,
@@ -1454,7 +1709,7 @@ function gridHtml() {
   if (Array.isArray(g.mppts) && g.mppts.length) {
     g.mppts.forEach((m, i) => {
       const voc = num(m.vocColdV), vmp = num(m.vmpHotV);
-      lines.push(`MPPT${i + 1}${m.arrayIds ? ` (${escapeHtml([].concat(m.arrayIds).join(', '))})` : ''}: ${m.strings ?? 1} × ${m.modulesPerString ?? m.modules ?? '?'} modules${Number.isFinite(voc) ? ` (Voc cold ${fmt(voc)} V ${voc <= 600 ? '≤' : '>'} 600 V${Number.isFinite(vmp) ? `, Vmp hot ${fmt(vmp)} V` : ''})` : ''}`);
+      lines.push(`MPPT${i + 1}${m.arrayIds ? ` (${escapeHtml([].concat(m.arrayIds).join(', '))})` : ''}: ${m.strings ?? 1} × ${m.modulesPerString ?? m.modules ?? '?'} modules${Number.isFinite(voc) ? ` (Voc cold ${fmt(voc)} V ${voc <= (g.commercial ? 1100 : 600) ? '≤' : '>'} ${g.commercial ? '1,100' : '600'} V${Number.isFinite(vmp) ? `, Vmp hot ${fmt(vmp)} V` : ''})` : ''}`);
     });
   } else if (s.stringing?.mppts?.length) {
     const st = s.stringing;
@@ -1770,6 +2025,22 @@ function renderNorthNote() {
 function renderScanTable() {
   const t = state.twin, b = t.bounds;
   const size = b ? b.max.map((v, i) => v - b.min[i]) : null;
+  if (isMap()) {
+    const d = state.data, bl = d.meshes?.buildings || [];
+    const siteB = bl.find((b) => b.isSite);
+    const rows = [
+      ['Twin', `${escapeHtml(t.title || d.site?.name || d.site?.id)} · Level 1 (map)`],
+      ['Source', `OpenStreetMap footprint <a href="https://www.openstreetmap.org/${escapeHtml(d.site?.id)}" target="_blank" rel="noopener">${escapeHtml(d.site?.id)}</a> · township ${escapeHtml(d.town)}`],
+      ['Buildings shown', `${fmt(bl.length)} (site + neighbours within ${NEIGHBOUR_RADIUS_M} m)`],
+      ['Site height', siteB ? `${fmt(siteB.height, 1)} m${siteB.roof?.type ? ` · ${escapeHtml(siteB.roof.type)} roof` : ''} · ${escapeHtml(d.site?.heightSource || 'estimated')}` : '–'],
+      ['Size E × H × S', size ? `${size.map((v) => fmt(v, 1)).join(' × ')} m` : '–'],
+      ['Roof planes (site)', primaryRoofs().map((r) => `${escapeHtml(r.id)} ${fmt(r.tilt, 0)}°/${fmt(r.azimuth, 0)}° ${fmt(r.area, 0)} m²`).join('<br>') || '–'],
+      ['Occupancy grid', state.occ ? `${state.occ.dims.join(' × ')} @ ${fmt(state.occ.voxel * 100)} cm` : 'missing (no shading)'],
+      ['Twin built in', Number.isFinite(d.buildMs) ? `${fmt(d.buildMs)} ms` : '–']
+    ];
+    $('scanTable').innerHTML = rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
+    return;
+  }
   const rows = [
     ['Twin', escapeHtml(t.title || t.id)],
     ['Source', escapeHtml(t.source || '–')],
@@ -1805,9 +2076,66 @@ function frame(now) {
 }
 
 // ------------------------------------------------------------------ boot
+// Header badge + one-line explainer: Level 1 (mapped footprints) vs Level 2 (drone scan).
+function setLevel(level) {
+  const b = document.querySelector('.badge.phase');
+  if (b) {
+    b.textContent = level === 1 ? 'Level 1 · map-based twin' : 'Level 2 · drone-scan twin';
+    b.title = level === 1 ? 'Built from mapped footprints and estimated heights. Back to the shortlist.' : 'Built from a drone survey: measured roof planes and obstacles. Back to the shortlist.';
+    b.classList.toggle('level1', level === 1);
+  }
+  const n = $('levelNote');
+  if (n) n.innerHTML = level === 1
+    ? '<b>Level 1</b> uses mapped footprints and estimated heights; fly a drone to upgrade to <b>Level 2</b> for surveyed-grade roof planes and obstacles.'
+    : '<b>Level 2</b> drone-scan twin: roof planes and obstacles measured from a survey. <b>Level 1</b> twins (mapped footprints, estimated heights) open from any site on the map.';
+}
+// Map twins: size to the map's modelled kWp, tilted racks on flat roofs, hide scan-only controls.
+function applyMapDefaults() {
+  const o = state.opts;
+  if (Number.isFinite(MAP_KWP) && MAP_KWP > 0) {
+    o.sizeMode = 'kwp'; o.targetKwp = Math.round(MAP_KWP * 2) / 2;
+    const k = $('kwp');
+    k.max = String(Math.max(20, Math.ceil(MAP_KWP * 1.5 / 5) * 5)); k.step = MAP_KWP > 100 ? '5' : MAP_KWP > 20 ? '1' : '0.5';
+    k.value = String(o.targetKwp); $('kwpOut').textContent = `${o.targetKwp.toFixed(1)} kWp`;
+  } else o.sizeMode = isMapHome() ? 'atap' : 'max';
+  document.querySelectorAll('[data-size]').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.size === o.sizeMode)));
+  $('kwpRow').hidden = o.sizeMode !== 'kwp';
+  if (o.sizeMode === 'kwp') $('sizeNote').textContent = `Target: the township map's modelled capacity for this site (${fmt(MAP_KWP, 1)} kWp, after any ATAP or onsite-use cap). Best-yield modules first until it is met.`;
+  const roofs = primaryRoofs();
+  const hint = state.data.planHints?.mounting;
+  const flat = hint ? hint === 'tilted' : roofs.length && roofs.filter((r) => r.flat || r.tilt < 5).length >= roofs.length / 2;
+  if (flat) {
+    o.mounting = 'tilted'; $('mounting').value = 'tilted'; $('tiltRow').hidden = false;
+    o.setback = 1.0; $('setback').value = '1'; $('setbackOut').textContent = '1.00 m';
+    renderPanelSpec();
+  }
+  for (const id of ['lyrScanShadow', 'pointSize']) { const el = $(id)?.closest('label'); if (el) el.hidden = true; }
+  const key = document.querySelector('.key .k-scan')?.parentElement;
+  if (key) key.innerHTML = '<i class="k-scan k-map"></i>Mapped buildings: the site in warm tone, neighbours within 80 m in grey (OSM footprints, estimated heights)';
+  if (!isMapHome()) {
+    const h = [...document.querySelectorAll('#panel-plan h3')].find((x) => x.textContent === 'Battery');
+    if (h) h.textContent = 'BESS / battery room';
+    const lb = $('lyrBattery')?.closest('label'); if (lb) lb.hidden = true;
+  }
+  const scanH = [...document.querySelectorAll('#panel-site h3')].find((x) => x.textContent === 'Scan');
+  if (scanH) scanH.textContent = 'Twin';
+  const siteNote = document.querySelector('#panel-site > p.note');
+  if (siteNote) siteNote.textContent = 'Location comes from the mapped footprint and north is true north. Changing them re-runs the sun and yield simulation.';
+  $('resetSite').textContent = 'Reset to mapped location';
+  const vp = $('viewport'); vp.setAttribute('aria-label', '3D view of the shortlisted site and its mapped neighbours. Drag to orbit, right-drag to pan, scroll to zoom, double-click to focus.');
+}
 async function boot() {
-  showStatus('Loading digital twin…');
-  const [api, data] = await Promise.all([loadApi(), loadTwin()]);
+  showStatus(MAP_MODE ? 'Building the map-based twin…' : 'Loading digital twin…');
+  setLevel(MAP_MODE ? 1 : 2);
+  if (MAP_MODE) document.querySelectorAll('a.back, a.brand, a.badge.phase').forEach((a) => { a.href = mapBackUrl(); });
+  const [api, data] = await Promise.all([loadApi(), MAP_MODE ? loadMapTwin() : loadTwin()]);
+  if (data.pending) {
+    $('twinTitle').textContent = data.site.name || `${data.site.categoryLabel} · ${data.site.id}`;
+    $('twinSub').textContent = `${data.neighbours.length} mapped neighbours within ${NEIGHBOUR_RADIUS_M} m · Level 1`;
+    $('sourceBadge').textContent = 'Map-based twin · preparing';
+    showStatus('Map-based twin is being prepared. The 3D model for mapped sites arrives shortly; meanwhile open the demo drone twin from the shortlist.');
+    return;
+  }
   state.api = api; state.data = data; state.twin = data.twin; state.occ = data.occupancy || null;
   const t = state.twin;
   const loc = t.location || {};
@@ -1816,6 +2144,7 @@ async function boot() {
   // bounds + centre (prefer roofs for the focus point)
   const bb = new THREE.Box3();
   if (t.bounds?.min && t.bounds?.max) bb.set(V3(t.bounds.min), V3(t.bounds.max));
+  else if (isMap()) { bb.copy(meshBounds()); t.bounds = { min: bb.min.toArray(), max: bb.max.toArray() }; }
   else { const p = data.points; for (let i = 0; i < p.length; i += 3) bb.expandByPoint(_a.set(p[i], p[i + 1], p[i + 2])); t.bounds = { min: bb.min.toArray(), max: bb.max.toArray() }; }
   const roofBox = new THREE.Box3();
   for (const r of primaryRoofs()) for (const q of r.outline) roofBox.expandByPoint(V3(q));
@@ -1827,18 +2156,29 @@ async function boot() {
   const now = new Date();
   state.date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
-  $('twinTitle').textContent = t.title || 'Digital twin';
-  $('twinSub').textContent = `${loc.name || 'Location assumed'} · ${fmt(data.points.length / 3)} points · simulated rooftop solar`;
   const realAlgo = api.real.placement;
   const badge = $('sourceBadge');
-  badge.textContent = data.real ? (realAlgo ? 'Drone scan · live planner' : 'Drone scan · fallback planner') : (realAlgo ? 'Demo house · live planner' : 'Demo house · fallback data');
-  badge.className = `badge ${data.real && realAlgo ? 'real' : 'mock'}`;
-  badge.title = data.real ? 'Prepared drone scan from public/twins' : `Synthetic house: ${data.why || ''}`;
+  if (isMap()) {
+    const s = data.site;
+    $('twinTitle').textContent = s.name || t.title || `${s.categoryLabel} · ${s.id}`;
+    $('twinSub').textContent = `${s.categoryLabel} · ${data.town.replace(/-/g, ' ')} · ${fmt(data.meshes.buildings.length)} mapped buildings · simulated rooftop solar`;
+    document.title = `${$('twinTitle').textContent}: Level 1 twin`;
+    badge.textContent = realAlgo ? 'Mapped footprints · live planner' : 'Mapped footprints · fallback planner';
+    badge.className = `badge ${realAlgo ? 'real' : 'mock'}`;
+    badge.title = 'OpenStreetMap footprints with estimated heights (src/twin/procedural.js)';
+  } else {
+    $('twinTitle').textContent = t.title || 'Digital twin';
+    $('twinSub').textContent = `${loc.name || 'Location assumed'} · ${fmt(data.points.length / 3)} points · simulated rooftop solar`;
+    badge.textContent = data.real ? (realAlgo ? 'Drone scan · live planner' : 'Drone scan · fallback planner') : (realAlgo ? 'Demo house · live planner' : 'Demo house · fallback data');
+    badge.className = `badge ${data.real && realAlgo ? 'real' : 'mock'}`;
+    badge.title = data.real ? 'Prepared drone scan from public/twins' : `Synthetic house: ${data.why || ''}`;
+  }
 
-  buildPoints();
+  if (isMap()) buildBuildings(); else buildPoints();
   buildGrid();
   buildRoofOutlines();
   wireUi();
+  if (isMap()) applyMapDefaults();
   renderScanTable();
   buildSunPath();
   state.minutes = 600; $('time').value = '600';
@@ -1849,7 +2189,7 @@ async function boot() {
   requestAnimationFrame(frame);
   // Start the colour splat download now, in parallel with planning; the grey
   // points stay on screen until it is ready.
-  const splatReady = loadSplat();
+  const splatReady = isMap() ? Promise.resolve(false) : loadSplat();
   splatReady.catch(() => {});
   await runPlan();
   frameArrays();

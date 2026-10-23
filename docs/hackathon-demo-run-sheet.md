@@ -2,7 +2,7 @@
 
 ## Single story
 
-**Which sites should SDP study first for solar? Compare the candidates, inspect the evidence, then hand over a consistent study brief.**
+**Which sites should SDP study first for solar? Screen the township → shortlist → verify each site in 3D → hand over a study brief.** One flow: map → top site → 3D twin → brief.
 
 Site screening opens by default. Community solar and Battery storage are visible secondary workspaces. Show them briefly after completing the main story.
 
@@ -13,15 +13,15 @@ Site screening opens by default. Community solar and Battery storage are visible
 | 0:00–0:20 | Township map and candidate list. Let analysis finish before recording the numbers. | “SDP has many possible solar sites. The question is which ones deserve the next feasibility study.” |
 | 0:20–0:50 | Select one named roof. Keep the ranked list visible. Explain its area, generation and demand basis. | “We combine mapped roof geometry, sampled building shadows, weather-derived yield and electricity-demand assumptions. The recommendation includes its basis.” |
 | 0:50–1:10 | Search Citta Mall in Ara Damansara and show its existing-solar exclusion. Return to the chosen candidate. | “A large roof is not automatically a new opportunity. Known existing installations are excluded, and unchecked roofs are labelled.” |
-| 1:10–1:55 | Open Evidence → Optional roof scan & draft layout. Inspect the prepared real scan if available, generate the draft, mark a genuine obstruction/keep-clear region and show the changed count/output. | “Drone imagery supports closer inspection. This draft uses mapped geometry and marked exclusions; the inspection helps us identify what needs correction.” |
-| 1:55–2:25 | Add the chosen site to the study shortlist, open Handover, then Export site brief. | “The result is a practical handover: assumptions, missing evidence and the next action, ready for professional feasibility review.” |
+| 1:10–1:55 | Press **View in 3D twin** on the chosen site (e.g. Evolve Concept Mall). Show the Level 1 badge, the tilted racks on the flat roof sized to the map's modelled kWp, the grey neighbours, scrub the sun slider, open the CAD tab. Press **← Back to the shortlist**: the same site is selected. Optionally open the Level 2 demo drone twin from Evidence → Drone survey. | “Every site opens as a 3D twin from its mapped footprint and neighbours: a draft layout, shading and dimensions before anyone visits. Level 1 uses estimated heights; flying a drone upgrades it to Level 2 with surveyed roof planes and obstacles.” |
+| 1:55–2:25 | Add the chosen site to the study shortlist, open Handover (it lists “3D twin: Level 1 (map)” with the link), then Export site brief: it carries the twin link and the draft layout kWp. | “The result is a practical handover: assumptions, missing evidence and the next action, ready for professional feasibility review.” |
 | 2:25–2:40 | Open Community solar to show proposed groups, then Battery storage. Return to Site screening. | “The same township context also supports community-solar and storage scenarios.” |
 | 2:40–3:00 | Show the team and proposed pilot/next steps. Use a verified public link or QR only after it works. | “Our next step is a focused pilot with SDP to compare these recommendations with measured site evidence and installer feedback.” |
 
 ## Preparation before recording
 
 - Use one township, named site and frozen assumption set across the app, deck and video. Record the site ID, data snapshot and whether a generated layout is applied.
-- Open the local app and wait for “Analysis ready.” Preload the map, scan and printable brief. Check the full route once before recording.
+- Open the local app and wait for “Analysis ready.” Preload the map, the site's 3D twin (planning a large mall roof takes ~7 s), the demo drone twin and printable brief. Check the full route once before recording.
 - Choose a site that has a meaningful, explainable evidence gap. Do not present the highest score as independently proven best.
 - Process the real drone footage ahead of the live presentation. Keep the exported scan locally so the viewer demonstration does not depend on a GPU remaining online. If showing processing, label actual elapsed time or time compression.
 - The teammate-house scan must be labelled as a technical demonstration on a non-SDP property. It is not a surveyed SDP roof. Do not overlay a township building as though the two are the same property.
@@ -33,7 +33,9 @@ Site screening opens by default. Community solar and Battery storage are visible
 
 **Is it automatically approving installation?** It prioritises sites and prepares a reviewable handover. Structure, connection and permissions are checked by the project professionals.
 
-**What does the splat contribute?** A viewable reconstruction supports roof inspection and spotting mismatches. In Phase 2 the digital twin (demo house only: a team member's home, not an SDP site) detects roof planes and obstacles from the scan and places a strung, setback-respecting draft array plus battery location. Township layouts still use mapped footprints and marked exclusions. Neither is a surveyed or certified design.
+**How accurate is the Level 1 twin?** It is a screening draft: OSM footprints, heights from tags or category defaults, assumed flat/hip/gable roofs, no rooftop plant or trees. It sizes and shades a draft layout; a drone survey (Level 2) or site survey confirms it.
+
+**What does the splat contribute?** A viewable reconstruction supports roof inspection and spotting mismatches. In the Level 2 drone twin (demo house only: a team member's home, not an SDP site) the planner detects roof planes and obstacles from the scan and places a strung, setback-respecting draft array plus battery location. Township layouts still use mapped footprints and marked exclusions. Neither is a surveyed or certified design.
 
 **What is original?** The useful integration is township comparison → explained recommendation → site evidence → consistent handover, with a real inspection demonstration. The underlying solar mapper is directly aligned with the provided challenge.
 

@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Digital twin: rooftop solar</title>
-    <meta name="description" content="Phase 2 of the solar site shortlist: verify one roof from a drone scan. Demo on a team member's home (not an SDP site) with a simulated draft array, sun simulation and CAD dimensions." />
+    <meta name="description" content="Step 3 of the developer pipeline (screen the township, shortlist, verify each site in 3D, hand over a study brief): a Level 1 map-based twin of any shortlisted site, or a Level 2 drone-scan twin, with a simulated draft array, sun simulation and CAD dimensions." />
     <link rel="stylesheet" href="/src/twin.css" />
   </head>
   <body>
@@ -38,6 +38,7 @@
         <summary>Assumptions</summary>
         <ul id="assumptionList"></ul>
       </details>
+      <p class="level-note" id="levelNote"></p>
     </section>
 
     <main id="stage">
@@ -144,6 +145,8 @@
           <label class="field" for="arrayPick">Array</label>
           <select id="arrayPick"></select>
           <div id="cadTable"></div>
+          <h3>Energy loss waterfall</h3>
+          <div id="lossWaterfall" class="waterfall"></div>
           <h3>Export</h3>
           <div class="actions">
             <button class="btn" id="exportCsv">Panels CSV</button>

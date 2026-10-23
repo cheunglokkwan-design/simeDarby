@@ -237,7 +237,7 @@ const angDist = (a, b) => Math.abs(((a - b + 540) % 360) - 180);
 function buildFlux(twin, grid, roof, frame, sun, o) {
   const cell = o.cell;
   const mod = moduleOrientation(frame, o);
-  const key = `${twin.id || ''}|${roof.id}|${sun.key}|${cell}|${mod.n.map((x) => x.toFixed(4)).join(',')}|${o.albedo}`;
+  const key = `${twin.id || ''}|${roof.id}|${sun.key}|${cell}|${o.rayStride ?? 2}|${o.shadeBlock ?? 1}|${frame.u.map((x) => x.toFixed(4)).join(',')}|${mod.n.map((x) => x.toFixed(4)).join(',')}|${o.albedo}`;
   let byGrid = grid ? fluxCache.get(grid) : null;
   if (grid && !byGrid) { byGrid = new Map(); fluxCache.set(grid, byGrid); }
   if (byGrid?.has(key)) return byGrid.get(key);
@@ -261,6 +261,8 @@ function buildFlux(twin, grid, roof, frame, sun, o) {
   const ignore = ignorePlane(frame, grid ? grid.voxel : 0.25);
   const svfBlock = new Map();
   const startOff = 0.35 + mod.rackH;
+  const stride = Math.max(1, Math.floor(o.rayStride ?? 2));
+  const shadeBlock = Math.max(1, Math.floor(o.shadeBlock ?? 1)), litBlock = new Map();
   for (let j = 0; j < nv; j++) for (let i = 0; i < nu; i++) {
     const a = frame.umin + (i + 0.5) * cell, b = frame.vmin + (j + 0.5) * cell;
     if (!pointInPoly(a, b, frame.poly)) continue;
@@ -280,12 +282,30 @@ function buildFlux(twin, grid, roof, frame, sun, o) {
     let e = 0, e0 = 0;
     const sky0 = (1 + mod.n[1]) / 2, gnd0 = 1 - sky0;
     const base = k * nS;
+    if (shadeBlock > 1) {
+      // coarse shading: cells of one shadeBlock × shadeBlock block share the first active cell's beam mask
+      const bkey = Math.floor(i / shadeBlock) + 100000 * Math.floor(j / shadeBlock);
+      const src = litBlock.get(bkey);
+      if (src !== undefined) {
+        lit.copyWithin(base, src * nS, src * nS + nS);
+        for (let s = 0; s < nS; s++) {
+          const w = S[s].weightH, l = lit[base + s];
+          e += w * (B[s] * l + Dk[s] * sky[k] + Gk[s] * gnd[k]);
+          e0 += w * (B[s] * front[s] + Dk[s] * sky0 + Gk[s] * gnd0);
+        }
+        poa[k] = e / 1000; poa0[k] = e0 / 1000;
+        continue;
+      }
+      litBlock.set(bkey, k);
+    }
     const cast = (s) => { const d = S[s].sv; return !grid || castRay(grid, ox, oy, oz, d[0], d[1], d[2], 200, ignore) < 0 ? 1 : 0; };
-    // shading is coherent in time: cast every other sample, and the ones between only at lit/shaded transitions
-    for (let s = 0; s < nS; s += 2) lit[base + s] = front[s] ? cast(s) : 0;
-    for (let s = 1; s < nS; s += 2) {
+    // shading is coherent in time: cast every `stride`-th sample (default every other one),
+    // and the ones between only at lit/shaded transitions
+    for (let s = 0; s < nS; s += stride) lit[base + s] = front[s] ? cast(s) : 0;
+    for (let s = 1; s < nS; s++) {
+      if (s % stride === 0) continue;
       if (!front[s]) { lit[base + s] = 0; continue; }
-      const a = s - 1, b = s + 1;
+      const a = s - (s % stride), b = a + stride;
       if (b < nS && front[a] && front[b] && S[a].month === S[s].month && S[b].month === S[s].month && lit[base + a] === lit[base + b]) lit[base + s] = lit[base + a];
       else lit[base + s] = cast(s);
     }
@@ -362,8 +382,17 @@ function makeSlotTester(flux, frame, sb, obstaclesUV, thr) {
 }
 
 // largest all-ones rectangle in a boolean matrix (rows × cols), maximising count then flux
+// 2D prefix sums of a rows × cols matrix: P[(r)*(cols+1)+c] = sum of M[<r][<c]
+function prefix2(rows, cols, at) {
+  const W = cols + 1, P = new Float64Array((rows + 1) * W);
+  for (let r = 0; r < rows; r++) { let acc = 0; for (let c = 0; c < cols; c++) { acc += at(r, c); P[(r + 1) * W + c + 1] = P[r * W + c + 1] + acc; } }
+  return (r0, r1, c0, c1) => P[(r1 + 1) * W + c1 + 1] - P[r0 * W + c1 + 1] - P[(r1 + 1) * W + c0] + P[r0 * W + c0]; // inclusive
+}
+const LARGE_MATRIX = 400; // above this many slots, sums use prefix tables (large map-twin roofs)
+
 function bestRectangle(M, F, rows, cols, minBlock) {
   let best = null;
+  const sumF = rows * cols > LARGE_MATRIX ? prefix2(rows, cols, (r, c) => F[r][c]) : null;
   const h = new Array(cols).fill(0);
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) h[c] = M[r][c] ? h[c] + 1 : 0;
@@ -378,7 +407,8 @@ function bestRectangle(M, F, rows, cols, minBlock) {
           if (n < minBlock) break;
           if (hh > 1 && nc < 2) continue; // no single-column stacks
           let f = 0;
-          for (let rr = r - hh + 1; rr <= r; rr++) for (let cc = c0; cc <= c1; cc++) f += F[rr][cc];
+          if (sumF) f = sumF(r - hh + 1, r, c0, c1);
+          else for (let rr = r - hh + 1; rr <= r; rr++) for (let cc = c0; cc <= c1; cc++) f += F[rr][cc];
           const score = n * 1e6 + f;
           if (!best || score > best.score) best = { r0: r - hh + 1, r1: r, c0, c1, n, f, score };
           break; // tallest rectangle for this span is the one with most cells; shorter ones have fewer
@@ -533,11 +563,13 @@ function sweepRoof(flux, frame, sb, obstaclesUV, panel, o, thr) {
 }
 
 // slide a rectangle (in u then v) to the centre of its free span
-function centreRect(blk, test, others, sbMinGap) {
+function centreRect(blk, test, others, sbMinGap, opt = {}) {
   const { pitchU, pitchV, Wu, Wv } = blk;
+  const ring = !!opt.centrePerimeterOnly && blk.rows > 2 && blk.cols > 2;
   const rectsAt = (du, dv) => {
     const out = [];
     for (let r = 0; r < blk.rows; r++) for (let c = 0; c < blk.cols; c++) {
+      if (ring && r > 0 && r < blk.rows - 1 && c > 0 && c < blk.cols - 1) continue; // interior slots stay inside the ring
       const u = blk.u0 + c * pitchU + du, v = blk.v0 + r * pitchV + dv;
       out.push([u, v, u + Wu, v + Wv]);
     }
@@ -556,7 +588,7 @@ function centreRect(blk, test, others, sbMinGap) {
   };
   const f0 = okAt(0, 0);
   if (f0 === null) return { du: 0, dv: 0, f: 0, note: null };
-  const st = 0.02;
+  const st = opt.centreStep ?? 0.02;
   const span = (axis) => {
     let lo = 0, hi = 0;
     const lim = axis === 'u' ? pitchU * 1.5 : pitchV * 1.5;
@@ -712,10 +744,29 @@ function clearanceInfo(frame, rect, sb, obstaclesUV) {
 // Plans, then checks the strings. A capped (system-design) plan that cannot be
 // wired as equal strings inside the inverter's voltage window is re-planned one
 // module smaller, so the result is always something an installer could string.
+//
+// Performance / non-domestic options (all optional; defaults keep the drone-twin
+// behaviour). A twin may carry `planDefaults` (e.g. procedural map twins), merged
+// under the caller's options:
+//   fluxCell (m, default 0.25)  flux-map cell (alias: cell); large roofs use 0.5-1.0
+//   stepMin (default 30)        sun-sample step of the typical year
+//   rayStride (default 2)       beam rays cast every k-th sun sample, others only at lit/shade transitions
+//   shadeBlock (default 1)      k × k flux cells share one beam-shading mask
+//   phaseStep (default 0.1)     lattice phase step (m)
+//   centreStep (default 0.02)   re-centring slide step (m)
+//   centrePerimeterOnly         re-centring tests only the block's outer ring of slots
+//   commercial                  non-domestic system: Solar ATAP non-domestic cap
+//                               (commercialCapKwp, default 1000 kWp), no single-phase
+//                               restring loop, no 2-MPPT limit, commercial inverter check
 export function planArray(twin, occupancy, options = {}) {
+  if (twin?.planDefaults) options = { ...twin.planDefaults, ...options };
   let plan = planOnce(twin, occupancy, options);
   const first = plan.summary.panels;
-  for (let n = first - 1; plan.summary.mode === 'system' && !plan.summary.grid.withinLimits && n >= 4; n--) {
+  // every size whose DC/AC exceeds the design ratio on the capped inverter fails the check: skip them
+  const g = plan.summary.grid, watt = plan.summary.watt || 1;
+  const dcacMax = (Number.isFinite(options.dcAc) ? options.dcAc : (GRID_RULES_MY?.defaultDcAcRatio ?? 1.2)) + 0.05;
+  const nDcAc = g?.limitKwac ? Math.floor((g.limitKwac * dcacMax * 1000) / watt) + 2 : Infinity;
+  for (let n = Math.min(first - 1, nDcAc); !options.commercial && plan.summary.mode === 'system' && !plan.summary.grid.withinLimits && n >= 4; n--) {
     plan = planOnce(twin, occupancy, { ...options, maxPanels: n, _capWhy: plan.summary.capWhy });
   }
   if (plan.summary.panels < first) plan.summary.grid.notes.unshift(`Reduced from ${first} to ${plan.summary.panels} modules so every MPPT gets equal strings within the inverter's voltage window.`);
@@ -730,7 +781,8 @@ function planOnce(twin, occupancy, options = {}) {
   const northBearing = Number.isFinite(twin.northBearing) ? twin.northBearing : (options.northOffsetDeg || 0);
   const o = {
     mounting: options.mounting || 'flush', tiltDeg: options.tiltDeg, orientation: options.orientation,
-    setback: options.setback ?? options.setbackM, fireStrict: !!options.fireStrict, cell: options.cell ?? 0.25,
+    setback: options.setback ?? options.setbackM, fireStrict: !!options.fireStrict, cell: options.fluxCell ?? options.cell ?? 0.25,
+    centreStep: options.centreStep ?? 0.02, rayStride: options.rayStride, shadeBlock: options.shadeBlock, centrePerimeterOnly: !!options.centrePerimeterOnly, commercial: !!options.commercial,
     stepMin: options.stepMin ?? 30, minBlock: Math.max(1, options.minBlock ?? 4), albedo: options.albedo ?? 0.2,
     minFluxRatio: options.minFluxRatio ?? 0.8, minFluxKwhM2: options.minFluxKwhM2 ?? options.fluxThreshold ?? 0,
     losses: { ...LOSSES, ...(options.lossFactors || {}) }, lat, lon, northBearing,
@@ -745,11 +797,17 @@ function planOnce(twin, occupancy, options = {}) {
   const dcac = Number.isFinite(options.dcAc) ? options.dcAc : (GRID_RULES_MY?.defaultDcAcRatio ?? 1.2);
   const atapKwp = capKwac * dcac;
   let capPanels = Infinity, capWhy = 'no size cap ("max" mode): every valid block is used';
-  if (Number.isFinite(options.maxPanels) && options.maxPanels > 0) { capPanels = Math.floor(options.maxPanels); capWhy = options._capWhy ? `${options._capWhy}, then ${capPanels} modules so the strings wire up evenly` : `capped at ${capPanels} modules (your limit)`; }
+  const commCap = Number.isFinite(options.commercialCapKwp) ? options.commercialCapKwp : 1000;
+  if (o.commercial) {
+    // non-domestic: the caller's target (modelled demand), never above the Solar ATAP non-domestic cap
+    const want = Number.isFinite(options.maxPanels) && options.maxPanels > 0 ? null : Number.isFinite(options.targetKwp) && options.targetKwp > 0 ? Math.min(options.targetKwp, commCap) : options.sizeMode === 'max' ? null : commCap;
+    if (Number.isFinite(options.maxPanels) && options.maxPanels > 0) { capPanels = Math.min(Math.floor(options.maxPanels), Math.floor((commCap * 1000 + 1e-6) / panel.watt)); capWhy = `capped at ${capPanels} modules (your limit, ≤ ${fmtInt(commCap)} kWp non-domestic cap)`; }
+    else if (want !== null) { capPanels = Math.floor((want * 1000 + 1e-6) / panel.watt); capWhy = Number.isFinite(options.targetKwp) && options.targetKwp > 0 ? `capped at ${fmt1(want)} kWp target${options.targetKwp > commCap ? ` (${fmt1(options.targetKwp)} kWp requested; Solar ATAP non-domestic cap ${fmtInt(commCap)} kWp)` : ''} (${capPanels} × ${panel.watt} W)` : `capped at ${fmtInt(commCap)} kWp: Solar ATAP non-domestic limit (${capPanels} × ${panel.watt} W)`; }
+  } else if (Number.isFinite(options.maxPanels) && options.maxPanels > 0) { capPanels = Math.floor(options.maxPanels); capWhy = options._capWhy ? `${options._capWhy}, then ${capPanels} modules so the strings wire up evenly` : `capped at ${capPanels} modules (your limit)`; }
   else if (Number.isFinite(options.targetKwp) && options.targetKwp > 0) { capPanels = Math.floor((options.targetKwp * 1000 + 1e-6) / panel.watt); capWhy = `capped at ${fmt1(options.targetKwp)} kWp target (${capPanels} × ${panel.watt} W)`; }
   else if (options.targetKwp === undefined && options.sizeMode !== 'max') { capPanels = Math.floor((atapKwp * 1000 + 1e-6) / panel.watt); capWhy = `capped at ${fmt1(atapKwp)} kWp DC: Solar ATAP ${phase}-phase limit is a ${capKwac} kWac inverter (AC rating), with DC/AC ${dcac}`; }
   // a capped (residential single-inverter) plan uses at most 2 roof orientations (2 MPPT inputs), ≥ 6 modules each
-  if (o.maxMppt === undefined) o.maxMppt = Number.isFinite(capPanels) ? (phase === 'three' ? 3 : 2) : Infinity;
+  if (o.maxMppt === undefined) o.maxMppt = o.commercial ? Infinity : Number.isFinite(capPanels) ? (phase === 'three' ? 3 : 2) : Infinity;
 
   const grid = occupancyFrom(twin, occupancy);
   const sun = sunData(lat, lon, tz, northBearing, o.stepMin);
@@ -808,18 +866,27 @@ function planOnce(twin, occupancy, options = {}) {
     const blks = sw.rects.map((b) => {
       const blk = {
         rows: b.r1 - b.r0 + 1, cols: b.c1 - b.c0 + 1, u0: sw.u0 + b.c0 * sw.pitchU, v0: sw.v0 + b.r0 * sw.pitchV,
-        pitchU: sw.pitchU, pitchV: sw.pitchV, Wu: sw.Wu, Wv: sw.Wv, orientation: sw.orientation, gap: sw.gap,
+        pitchU: sw.pitchU, pitchV: sw.pitchV, Wu: sw.Wu, Wv: sw.Wv, orientation: sw.orientation, gap: sw.gap, meanF: b.f / b.n,
       };
       blk.widthM = blk.cols * sw.pitchU - sw.gap; blk.lengthM = (blk.rows - 1) * sw.pitchV + sw.Wv;
       return blk;
     });
     const boxOf = (k) => [k.u0, k.v0, k.u0 + k.widthM, k.v0 + k.lengthM];
     blks.forEach((blk) => {
-      const c = centreRect(blk, sw.test, blks.filter((x) => x !== blk).map(boxOf), ARRAY_SEPARATION);
+      const c = centreRect(blk, sw.test, blks.filter((x) => x !== blk).map(boxOf), ARRAY_SEPARATION, o);
       blk.u0 += c.du; blk.v0 += c.dv; blk.centre = c;
     });
     ri.blocks = blks;
-    for (const blk of blks) candidates.push(makeCandidate(ri, blk, panel, sun, oo));
+    let use = blks;
+    if (o.commercial && Number.isFinite(capPanels)) {
+      // large non-domestic roofs: evaluate only the best-flux blocks needed to reach the cap (with margin)
+      use = []; let tot = 0;
+      for (const blk of blks.slice().sort((a, b) => b.meanF - a.meanF)) {
+        if (tot >= 1.3 * capPanels + o.minBlock) { rejected.push({ roofId: roof.id, kind: 'size-cap', outline: blockOutline(frame, blk, 0.03), why: `Valid ${blk.rows}×${blk.cols} block not needed: ${capWhy}.` }); continue; }
+        use.push(blk); tot += blk.rows * blk.cols;
+      }
+    }
+    for (const blk of use) candidates.push(makeCandidate(ri, blk, panel, sun, oo));
   }
 
   // ---- selection under the size cap: exact knapsack over whole-row/column
@@ -875,13 +942,14 @@ function planOnce(twin, occupancy, options = {}) {
     `Location ${loc.name || `${lat}, ${lon}`} (${fmt2(lat)}°, ${fmt2(lon)}°), UTC+${tz}. A drone scan has no GPS or compass: north bearing ${fmt1(northBearing)}° is an assumption the viewer lets you change.`,
     `Climate: ${CLIMATE_KL.source}; GHI ${fmtInt(sun.ghiYear)} kWh/m²/yr in this model (catalogue ${CLIMATE_KL.annualGhiKwhM2}), diffuse fraction ${fmt2(CLIMATE_KL.annualDiffuseFraction)}. Ground stations in the Klang Valley often read 5-10% lower.`,
     `Typical year: 12 representative days (Klein) × ${o.stepMin}-min steps; Haurwitz clear-sky shape scaled to monthly GHI, Erbs split rescaled to monthly DHI, Hay-Davies transposition, albedo ${o.albedo}.`,
-    `Shading: DDA rays through a ${grid ? grid.voxel : '—'} m occupancy grid for every 0.25 m roof cell and sun sample; 48-direction sky view for diffuse; trees treated as opaque (conservative). Module electrical shading: half-cut, 3 bypass diodes (6 units, each limited by its darkest point).`,
+    `Shading: DDA rays through a ${grid ? grid.voxel : '—'} m occupancy grid for every ${o.cell} m roof cell and sun sample; 48-direction sky view for diffuse; trees treated as opaque (conservative). Module electrical shading: half-cut, 3 bypass diodes (6 units, each limited by its darkest point).`,
     `Optics Martin-Ruiz (ar 0.16); cell temperature Faiman (${mountingWord(o.mounting)} U0 ${thermalParams(o.mounting, o.losses).U0}, U1 ${thermalParams(o.mounting, o.losses).U1}); system derate ${fmt2(systemDerate(o.losses))} (soiling, mismatch, wiring, LID, low light, inverter ${o.losses.inverterEff}, availability). Year-1 energy, no degradation (${pct(o.losses.degradationPerYear ?? 0.004, 1)}/yr after).`,
     `Size: ${capWhy}.`,
   );
   const mode = Number.isFinite(capPanels) ? 'system' : 'roof-potential';
-  assumptions.push('Solar ATAP limit read as the inverter AC rating (5 kWac single-phase, 15 kWac three-phase); confirm with a registered installer whether TNB applies it to the inverter or the panel (DC) rating.');
-  if (mode === 'system' && kWp > atapKwp + 1e-9) assumptions.push(`Warning: ${fmt1(kWp)} kWp exceeds the Solar ATAP single-phase guide (${capKwac} kWac × ${dcac} = ${fmt1(atapKwp)} kWp DC); a three-phase supply (≤ ${GRID_RULES_MY?.domesticThreePhaseMaxKw ?? 15} kWac) or a smaller array is needed.`);
+  if (o.commercial) assumptions.push(`Non-domestic system: Solar ATAP non-domestic cap ${fmtInt(commCap)} kWp and the site's modelled demand set the size; three-phase commercial string inverters (one MPPT per array).`);
+  else assumptions.push('Solar ATAP limit read as the inverter AC rating (5 kWac single-phase, 15 kWac three-phase); confirm with a registered installer whether TNB applies it to the inverter or the panel (DC) rating.');
+  if (!o.commercial && mode === 'system' && kWp > atapKwp + 1e-9) assumptions.push(`Warning: ${fmt1(kWp)} kWp exceeds the Solar ATAP single-phase guide (${capKwac} kWac × ${dcac} = ${fmt1(atapKwp)} kWp DC); a three-phase supply (≤ ${GRID_RULES_MY?.domesticThreePhaseMaxKw ?? 15} kWac) or a smaller array is needed.`);
   const summary = {
     panels: n, kWp: +kWp.toFixed(3), annualKwh: Math.round(annualKwh), specificYield: kWp ? Math.round(annualKwh / kWp) : 0,
     avgShadeLoss: n ? +(outPanels.reduce((a, p) => a + p.shadeLoss, 0) / n).toFixed(4) : 0,
@@ -889,7 +957,7 @@ function planOnce(twin, occupancy, options = {}) {
     monthlyKwh: monthly.map((x) => Math.round(x)), arrays: arrays.length, panelModel: panel.name, panelId: panel.id, watt: panel.watt,
     weightKg: Math.round(arrays.reduce((a, x) => a + x.weightKg, 0)),
     mode, capWhy,
-    grid: gridCheck(arrays, panel, kWp, mode === 'system' ? capKwac : (GRID_RULES_MY?.domesticThreePhaseMaxKw ?? 15), dcac, mode === 'system' ? phase : 'three', mode),
+    grid: o.commercial ? commercialGridCheck(arrays, panel, kWp, dcac, commCap) : gridCheck(arrays, panel, kWp, mode === 'system' ? capKwac : (GRID_RULES_MY?.domesticThreePhaseMaxKw ?? 15), dcac, mode === 'system' ? phase : 'three', mode),
     yield: { modelledKwh: Math.round(annualKwh), groundCalibratedKwh: Math.round(annualKwh * GROUND_FACTOR), factor: GROUND_FACTOR,
       note: 'NASA POWER satellite irradiance reads about 5-10% above Klang Valley ground stations; the calibrated figure scales it by 0.93. A measured Shah Alam home makes 1,144-1,196 kWh/kWp.' },
     specificYieldCalibrated: kWp ? Math.round(annualKwh * GROUND_FACTOR / kWp) : 0,
@@ -927,12 +995,14 @@ function makeCandidate(ri, blk, panel, sun, o) {
 function subRectOptions(cand, maxN, o) {
   const { blk } = cand;
   const bySize = new Map();
+  const sumE = blk.rows * blk.cols > 200 ? prefix2(blk.rows, blk.cols, (r, c) => cand.cells[r][c].annualKwh) : null;
   for (let rr = 1; rr <= blk.rows; rr++) for (let cc = 1; cc <= blk.cols; cc++) {
     const n = rr * cc;
     if (n > maxN || n < o.minBlock || (rr > 1 && cc < 2)) continue;
     for (let r0 = 0; r0 + rr <= blk.rows; r0++) for (let c0 = 0; c0 + cc <= blk.cols; c0++) {
       let e = 0;
-      for (let r = r0; r < r0 + rr; r++) for (let c = c0; c < c0 + cc; c++) e += cand.cells[r][c].annualKwh;
+      if (sumE) e = sumE(r0, r0 + rr - 1, c0, c0 + cc - 1);
+      else for (let r = r0; r < r0 + rr; r++) for (let c = c0; c < c0 + cc; c++) e += cand.cells[r][c].annualKwh;
       const off = Math.abs(c0 + cc / 2 - blk.cols / 2) + Math.abs(r0 + rr / 2 - blk.rows / 2);
       const score = e - off * 1e-3 - Math.abs(rr - cc) * 1e-4; // energy, then centred, then squarer
       const cur = bySize.get(n);
@@ -1043,7 +1113,7 @@ function trimCandidate(cand, best, panel, sun, o, others = []) {
   const nb = { ...blk, rows: best.rr, cols: best.cc, u0: blk.u0 + best.c0 * blk.pitchU, v0: blk.v0 + best.r0 * blk.pitchV };
   nb.widthM = nb.cols * nb.pitchU - nb.gap; nb.lengthM = (nb.rows - 1) * nb.pitchV + nb.Wv;
   // re-centre the trimmed block inside the roof's free span
-  const c = centreRect(nb, cand.ri.sweep.test, others, ARRAY_SEPARATION);
+  const c = centreRect(nb, cand.ri.sweep.test, others, ARRAY_SEPARATION, o);
   nb.u0 += c.du; nb.v0 += c.dv; nb.centre = c; nb.trimmedFrom = [blk.rows, blk.cols];
   const t = makeCandidate(cand.ri, nb, panel, sun, o);
   t.trimmed = true;
@@ -1295,17 +1365,57 @@ function gridCheck(arrays, panel, kWp, capKwac, dcac, phase, mode) {
     suggestedInverterKwac: inverterKwac, dcAcRatio: dcAc, withinLimit: ok };
 }
 
+// Non-domestic: commercial three-phase string inverters (100 kWac class, many
+// MPPTs), so the per-orientation single-inverter string rules do not bind.
+function commercialGridCheck(arrays, panel, kWp, dcac, capKwp) {
+  const unitKwac = kWp > 60 ? 100 : kWp > 20 ? 30 : 10;
+  const inverters = Math.max(1, Math.ceil(kWp / dcac / unitKwac));
+  const inverterKwac = inverters * unitKwac;
+  const vocCold = panel.vocV ? panel.vocV * (1 + panel.vocTempCoeff * ((CLIMATE_KL.designMinCellC ?? 15) - 25)) : null;
+  const maxSeries = vocCold ? Math.floor(1100 / vocCold) : 20;
+  const ok = kWp <= capKwp + 1e-9;
+  const notes = [
+    `${inverters} × ${unitKwac} kWac three-phase string inverter${inverters > 1 ? 's' : ''} (DC/AC ${(kWp / inverterKwac).toFixed(2)}); strings of up to ${maxSeries} modules at 1,100 V DC.`,
+    ok ? `Within the Solar ATAP non-domestic cap (${fmtInt(capKwp)} kWp).` : `Above the Solar ATAP non-domestic cap (${fmtInt(capKwp)} kWp).`,
+    'Non-domestic connection: TNB/ST application and a single-line diagram from a registered installer required.',
+  ];
+  // Strings per array: the longest equal length inside the 1,100 V / MPPT window
+  // that divides the array; otherwise full strings plus one shorter string on
+  // its own MPPT (commercial inverters have many).
+  const vmpHot = panel.vocV ? (panel.vmpV || panel.vocV * 0.83) * (1 + panel.tempCoeff * ((CLIMATE_KL.designMaxCellC ?? 75) - 25)) : null;
+  const minSeries = vmpHot ? Math.ceil(200 / vmpHot) : 1;
+  const mppts = [];
+  for (const a of arrays) {
+    let per = null;
+    for (let s = maxSeries; s >= minSeries; s--) if (a.panels % s === 0) { per = s; break; }
+    const v = (s) => (vocCold ? +(vocCold * s).toFixed(0) : null);
+    const vh = (s) => (vmpHot ? +(vmpHot * s).toFixed(0) : null);
+    if (per) mppts.push({ arrayIds: [a.id], modules: a.panels, strings: a.panels / per, modulesPerString: per, vocColdV: v(per), vmpHotV: vh(per), valid: true });
+    else {
+      const full = Math.floor(a.panels / maxSeries), rest = a.panels - full * maxSeries;
+      mppts.push({ arrayIds: [a.id], modules: full * maxSeries, strings: full, modulesPerString: maxSeries, vocColdV: v(maxSeries), vmpHotV: vh(maxSeries), valid: true });
+      if (rest) mppts.push({ arrayIds: [a.id], modules: rest, strings: 1, modulesPerString: rest, vocColdV: v(rest), vmpHotV: vh(rest), valid: rest >= minSeries });
+    }
+  }
+  const stringCount = mppts.reduce((t, m) => t + m.strings, 0);
+  notes.splice(1, 0, `${fmtInt(stringCount)} strings across ${inverters} inverter${inverters > 1 ? 's' : ''} (about ${Math.ceil(stringCount / inverters)} per inverter).`);
+  return { programme: GRID_RULES_MY?.programme || 'Solar ATAP', phase: 'three', limitKwac: inverterKwac, inverterKwac, dcAc: +(kWp / inverterKwac).toFixed(2), mppts,
+    withinLimits: ok && mppts.every((m) => m.valid), notes, maxModulesPerString: maxSeries, minModulesPerString: minSeries, commercial: true, inverters, unitKwac,
+    suggestedInverterKwac: inverterKwac, dcAcRatio: +(kWp / inverterKwac).toFixed(2), withinLimit: ok };
+}
+
 // ----------------------------------------------------------------------------- heatmap
 export function roofHeatmap(twin, occupancy, options = {}) {
   const loc = twin.location || {};
   const lat = options.lat ?? loc.lat ?? CLIMATE_KL.lat, lon = options.lon ?? loc.lon ?? CLIMATE_KL.lon, tz = loc.timezone ?? 8;
   const northBearing = Number.isFinite(options.northBearing) ? options.northBearing : (twin.northBearing || 0) + (options.northOffsetDeg || 0);
   const grid = occupancyFrom(twin, occupancy);
-  const sun = sunData(lat, lon, tz, northBearing, options.stepMin ?? 30);
-  const o = { mounting: options.mounting || 'flush', tiltDeg: options.tiltDeg, cell: 0.25, albedo: options.albedo ?? 0.2, lat, northBearing,
+  const sun = sunData(lat, lon, tz, northBearing, options.stepMin ?? twin?.planDefaults?.stepMin ?? 30);
+  const fc = options.fluxCell ?? twin?.planDefaults?.fluxCell ?? 0.25;
+  const o = { mounting: options.mounting || twin?.planDefaults?.mounting || 'flush', tiltDeg: options.tiltDeg, cell: fc, rayStride: options.rayStride ?? twin?.planDefaults?.rayStride, shadeBlock: options.shadeBlock ?? twin?.planDefaults?.shadeBlock, albedo: options.albedo ?? 0.2, lat, northBearing,
     roofIds: options.roofIds, buildingIds: options.buildingIds, allBuildings: options.allBuildings };
-  const want = Math.max(0.25, options.cell ?? 0.5);
-  const agg = Math.max(1, Math.round(want / 0.25));
+  const want = Math.max(fc, options.cell ?? 0.5);
+  const agg = Math.max(1, Math.round(want / fc));
   let min = Infinity, max = -Infinity;
   const roofs = [];
   for (const roof of targetRoofs(twin, o)) {

@@ -336,3 +336,12 @@ dialog#settings:not([open]) { display: none; }
   #tabs button { min-width: 0; min-height: 44px; flex: 1; font-size: 11px; padding: 6px 4px; justify-content: center; }
   #tour { position: fixed; top: auto; bottom: 16px; left: 16px; right: 16px; width: auto; max-height: 45vh; }
 }
+
+/* Step 3: verify each site in 3D (Level 1 map twin / Level 2 drone twin) */
+.selection-header .header-twin { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.btn.twin-btn { text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+.btn.twin-l2 { text-decoration: none; font-size: 12px; background: #e3f4ea; color: #166534; border-color: #bfe3cc; }
+.twin-verify { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.twin-verify h4 { flex-basis: 100%; margin: 0; font-size: 13px; }
+.twin-verify .note { flex-basis: 100%; margin: 4px 0 0; }
+.candidate-twin { font-size: 10px; line-height: 1.5; color: #1d4f8a; margin-top: 3px; font-weight: 600; }
