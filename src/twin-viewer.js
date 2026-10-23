@@ -1089,7 +1089,7 @@ function planOptions(orientation) {
     panel: currentPanel(), mounting: o.mounting, tiltDeg: o.mounting === 'tilted' ? o.tiltDeg : null,
     orientation: orientation === 'auto' ? undefined : orientation,
     setback: o.setback, setbackM: o.setback,
-    // atap: leave targetKwp undefined so the planner applies the Solar ATAP cap (the fallback uses 6.5 kWp)
+    // atap: leave targetKwp undefined so the planner applies the Solar ATAP cap (DC/AC 1.2 on 5 kWac)
     targetKwp: o.sizeMode === 'kwp' ? o.targetKwp : o.sizeMode === 'atap' ? (state.api.real.placement ? undefined : 6.5) : null, sizeMode: o.sizeMode, maxPanels: null,
     fluxThreshold: o.fluxThreshold || 0, minFluxKwhM2: o.fluxThreshold || 0,
     heatmap: state.heat, northOffsetDeg: bearing(), azimuthOffsetDeg: state.north, lat: state.lat, lon: state.lon,
@@ -1341,7 +1341,7 @@ function renderCad() {
     ['Annual energy', `${fmt(kwh)} kWh`],
     ['Specific yield', `${fmt(kWp ? kwh / kWp : NaN)} kWh/kWp`],
     ...(state.plan.summary?.performanceRatio ? [['Performance ratio', `${fmt(state.plan.summary.performanceRatio * 100, 1)}%`]] : []),
-    ...(state.plan.summary?.stringing?.maxModulesPerString ? [['String length', `${state.plan.summary.stringing.minModulesPerString}–${state.plan.summary.stringing.maxModulesPerString} modules`]] : [])
+    ...(state.plan.summary?.grid?.maxModulesPerString ? [['String length', `${state.plan.summary.grid.minModulesPerString}–${state.plan.summary.grid.maxModulesPerString} modules`]] : [])
   ];
   box.innerHTML = gridHtml() + `<table>${rows.map(([k, v]) => (v == null ? `<tr class="group"><td colspan="2">${k}</td></tr>` : `<tr><td>${k}</td><td>${v}</td></tr>`)).join('')}</table>` +
     (arr.reason?.headline ? `<p class="note"><b>${escapeHtml(arr.reason.headline)}</b>${(arr.reason.bullets || []).map((b) => `<br>· ${escapeHtml(b)}`).join('')}</p>` : '');
@@ -1612,7 +1612,7 @@ function wireUi() {
     state.opts.sizeMode = b.dataset.size;
     document.querySelectorAll('[data-size]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
     $('kwpRow').hidden = state.opts.sizeMode !== 'kwp';
-    $('sizeNote').textContent = { atap: 'ATAP: capped at the Solar ATAP single-phase limit (5 kWac × 1.3 = 6.5 kWp).', max: 'Max: every valid spot on the roof is used (may exceed what a single-phase home can export).', kwp: 'Target: best-yield modules first until the target is met.' }[state.opts.sizeMode];
+    $('sizeNote').textContent = { atap: 'ATAP: sized for a 5 kWac single-phase inverter (the Solar ATAP limit, an AC rating) at DC/AC 1.2, about 6 kWp of panels, wired as equal strings under 600 V.', max: 'Max: every valid spot on the roof is used (may exceed what a single-phase home can export).', kwp: 'Target: best-yield modules first until the target is met.' }[state.opts.sizeMode];
     schedulePlan();
   }));
   const toggleHeat = () => { setVisible(groups.heat, $('lyrHeat').checked); $('legend').hidden = !$('lyrHeat').checked; };

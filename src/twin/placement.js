@@ -709,7 +709,20 @@ function clearanceInfo(frame, rect, sb, obstaclesUV) {
 }
 
 // ----------------------------------------------------------------------------- main API
+// Plans, then checks the strings. A capped (system-design) plan that cannot be
+// wired as equal strings inside the inverter's voltage window is re-planned one
+// module smaller, so the result is always something an installer could string.
 export function planArray(twin, occupancy, options = {}) {
+  let plan = planOnce(twin, occupancy, options);
+  const first = plan.summary.panels;
+  for (let n = first - 1; plan.summary.mode === 'system' && !plan.summary.grid.withinLimits && n >= 4; n--) {
+    plan = planOnce(twin, occupancy, { ...options, maxPanels: n, _capWhy: plan.summary.capWhy });
+  }
+  if (plan.summary.panels < first) plan.summary.grid.notes.unshift(`Reduced from ${first} to ${plan.summary.panels} modules so every MPPT gets equal strings within the inverter's voltage window.`);
+  return plan;
+}
+
+function planOnce(twin, occupancy, options = {}) {
   const T0 = nowMs();
   const panel = normalizePanel(options.panel || options.panelId);
   const loc = twin.location || {};
@@ -729,12 +742,12 @@ export function planArray(twin, occupancy, options = {}) {
   // size cap
   const phase = options.phase || 'single';
   const capKwac = phase === 'three' ? (GRID_RULES_MY?.domesticThreePhaseMaxKw ?? 15) : (GRID_RULES_MY?.domesticSinglePhaseMaxKw ?? 5);
-  const dcac = GRID_RULES_MY?.typicalDcAcRatio?.[1] ?? 1.3;
+  const dcac = Number.isFinite(options.dcAc) ? options.dcAc : (GRID_RULES_MY?.defaultDcAcRatio ?? 1.2);
   const atapKwp = capKwac * dcac;
   let capPanels = Infinity, capWhy = 'no size cap ("max" mode): every valid block is used';
-  if (Number.isFinite(options.maxPanels) && options.maxPanels > 0) { capPanels = Math.floor(options.maxPanels); capWhy = `capped at ${capPanels} modules (your limit)`; }
+  if (Number.isFinite(options.maxPanels) && options.maxPanels > 0) { capPanels = Math.floor(options.maxPanels); capWhy = options._capWhy ? `${options._capWhy}, then ${capPanels} modules so the strings wire up evenly` : `capped at ${capPanels} modules (your limit)`; }
   else if (Number.isFinite(options.targetKwp) && options.targetKwp > 0) { capPanels = Math.floor((options.targetKwp * 1000 + 1e-6) / panel.watt); capWhy = `capped at ${fmt1(options.targetKwp)} kWp target (${capPanels} × ${panel.watt} W)`; }
-  else if (options.targetKwp === undefined && options.sizeMode !== 'max') { capPanels = Math.floor((atapKwp * 1000 + 1e-6) / panel.watt); capWhy = `capped at ${fmt1(atapKwp)} kWp: Solar ATAP ${phase}-phase limit ${capKwac} kWac × DC/AC ${dcac}`; }
+  else if (options.targetKwp === undefined && options.sizeMode !== 'max') { capPanels = Math.floor((atapKwp * 1000 + 1e-6) / panel.watt); capWhy = `capped at ${fmt1(atapKwp)} kWp DC: Solar ATAP ${phase}-phase limit is a ${capKwac} kWac inverter (AC rating), with DC/AC ${dcac}`; }
   // a capped (residential single-inverter) plan uses at most 2 roof orientations (2 MPPT inputs), ≥ 6 modules each
   if (o.maxMppt === undefined) o.maxMppt = Number.isFinite(capPanels) ? (phase === 'three' ? 3 : 2) : Infinity;
 
@@ -866,14 +879,20 @@ export function planArray(twin, occupancy, options = {}) {
     `Optics Martin-Ruiz (ar 0.16); cell temperature Faiman (${mountingWord(o.mounting)} U0 ${thermalParams(o.mounting, o.losses).U0}, U1 ${thermalParams(o.mounting, o.losses).U1}); system derate ${fmt2(systemDerate(o.losses))} (soiling, mismatch, wiring, LID, low light, inverter ${o.losses.inverterEff}, availability). Year-1 energy, no degradation (${pct(o.losses.degradationPerYear ?? 0.004, 1)}/yr after).`,
     `Size: ${capWhy}.`,
   );
-  if (kWp > atapKwp + 1e-9) assumptions.push(`Warning: ${fmt1(kWp)} kWp exceeds the Solar ATAP single-phase guide (${capKwac} kWac × ${dcac} = ${fmt1(atapKwp)} kWp DC); a three-phase supply (≤ ${GRID_RULES_MY?.domesticThreePhaseMaxKw ?? 15} kWac) or a smaller array is needed.`);
+  const mode = Number.isFinite(capPanels) ? 'system' : 'roof-potential';
+  assumptions.push('Solar ATAP limit read as the inverter AC rating (5 kWac single-phase, 15 kWac three-phase); confirm with a registered installer whether TNB applies it to the inverter or the panel (DC) rating.');
+  if (mode === 'system' && kWp > atapKwp + 1e-9) assumptions.push(`Warning: ${fmt1(kWp)} kWp exceeds the Solar ATAP single-phase guide (${capKwac} kWac × ${dcac} = ${fmt1(atapKwp)} kWp DC); a three-phase supply (≤ ${GRID_RULES_MY?.domesticThreePhaseMaxKw ?? 15} kWac) or a smaller array is needed.`);
   const summary = {
     panels: n, kWp: +kWp.toFixed(3), annualKwh: Math.round(annualKwh), specificYield: kWp ? Math.round(annualKwh / kWp) : 0,
     avgShadeLoss: n ? +(outPanels.reduce((a, p) => a + p.shadeLoss, 0) / n).toFixed(4) : 0,
     performanceRatio: +pr.toFixed(3), poaKwhM2: Math.round(poaMean), thermalLoss: +thermal.toFixed(4), meanCellTempC: +tcell.toFixed(1),
     monthlyKwh: monthly.map((x) => Math.round(x)), arrays: arrays.length, panelModel: panel.name, panelId: panel.id, watt: panel.watt,
-    weightKg: Math.round(arrays.reduce((a, x) => a + x.weightKg, 0)), grid: gridCheck(kWp, capKwac, dcac, phase),
-    stringing: stringing(arrays, panel),
+    weightKg: Math.round(arrays.reduce((a, x) => a + x.weightKg, 0)),
+    mode, capWhy,
+    grid: gridCheck(arrays, panel, kWp, mode === 'system' ? capKwac : (GRID_RULES_MY?.domesticThreePhaseMaxKw ?? 15), dcac, mode === 'system' ? phase : 'three', mode),
+    yield: { modelledKwh: Math.round(annualKwh), groundCalibratedKwh: Math.round(annualKwh * GROUND_FACTOR), factor: GROUND_FACTOR,
+      note: 'NASA POWER satellite irradiance reads about 5-10% above Klang Valley ground stations; the calibrated figure scales it by 0.93. A measured Shah Alam home makes 1,144-1,196 kWh/kWp.' },
+    specificYieldCalibrated: kWp ? Math.round(annualKwh * GROUND_FACTOR / kWp) : 0,
     assumptions,
     timings: { totalMs: Math.round(nowMs() - T0), fluxMs: Math.round(timings.fluxMs), sweepMs: Math.round(timings.sweepMs) },
   };
@@ -1231,22 +1250,49 @@ function tiltedRowPitch(tiltDeg, lat, lon, tz, northBearing, face) {
   return { pitchFor, worstProfileDeg: Math.atan(worstTan) * DEG, worst };
 }
 
-function gridCheck(kWp, capKwac, dcac, phase) {
-  const inverterKw = Math.min(capKwac, Math.max(1, Math.ceil((kWp / dcac) * 2) / 2));
-  return { programme: GRID_RULES_MY?.programme || 'Solar ATAP', phase, limitKwac: capKwac, suggestedInverterKwac: inverterKw, dcAcRatio: +(kWp / inverterKw).toFixed(2), withinLimit: kWp / inverterKw <= dcac + 1e-9 && inverterKw <= capKwac };
-}
+const GROUND_FACTOR = 0.93;
+// Inverter window assumed for a typical 5 kWac single-phase string inverter
+// (e.g. Huawei SUN2000-5KTL-L1): 600 V max DC, 90-560 V MPPT, 2 MPPT inputs.
+const INVERTER = { maxDcV: 600, mpptMinV: 90, mpptMaxV: 560, mpptsSingle: 2, maxParallel: 2 };
 
-function stringing(arrays, panel) {
-  // simple guide: 600 V max DC, MPPT 90-550 V (typical 5 kW single-phase hybrid/string inverter)
-  if (!panel.vocV) return null;
-  const vocCold = panel.vocV * (1 + panel.vocTempCoeff * ((CLIMATE_KL.designMinCellC ?? 15) - 25));
-  const vmpHot = (panel.vmpV || panel.vocV * 0.83) * (1 + panel.tempCoeff * ((CLIMATE_KL.designMaxCellC ?? 75) - 25));
-  const maxSeries = Math.floor(600 / vocCold), minSeries = Math.ceil(90 / vmpHot);
+// One MPPT per roof orientation; each MPPT gets equal strings (never unequal
+// strings in parallel) whose cold Voc stays under the inverter maximum.
+function gridCheck(arrays, panel, kWp, capKwac, dcac, phase, mode) {
+  const notes = [];
+  const inverterKwac = Math.min(capKwac, Math.max(1, Math.ceil((kWp / dcac) * 2) / 2));
+  const vocCold = panel.vocV ? panel.vocV * (1 + panel.vocTempCoeff * ((CLIMATE_KL.designMinCellC ?? 15) - 25)) : null;
+  const vmpHot = panel.vocV ? (panel.vmpV || panel.vocV * 0.83) * (1 + panel.tempCoeff * ((CLIMATE_KL.designMaxCellC ?? 75) - 25)) : null;
+  const maxSeries = vocCold ? Math.floor(INVERTER.maxDcV / vocCold) : Infinity;
+  const minSeries = vmpHot ? Math.ceil(INVERTER.mpptMinV / vmpHot) : 1;
   const groups = new Map();
-  for (const a of arrays) { const k = `${Math.round(a.azimuthDeg / 5) * 5}/${Math.round(a.tiltDeg / 5) * 5}`; groups.set(k, (groups.get(k) || 0) + a.panels); }
-  return { maxModulesPerString: maxSeries, minModulesPerString: minSeries, vocColdV: +vocCold.toFixed(1), vmpHotV: +vmpHot.toFixed(1),
-    mppts: [...groups.entries()].map(([k, n]) => ({ orientation: k, modules: n, strings: Math.ceil(n / maxSeries) })),
-    note: 'One MPPT per roof orientation; modules of an MPPT in one string while within the voltage window (600 V max DC, 90-550 V MPPT assumed).' };
+  for (const a of arrays) {
+    const k = `${Math.round(a.azimuthDeg / 5) * 5}/${Math.round(a.tiltDeg / 5) * 5}`;
+    if (!groups.has(k)) groups.set(k, { arrayIds: [], modules: 0, azimuthDeg: a.azimuthDeg, tiltDeg: a.tiltDeg });
+    const gr = groups.get(k); gr.arrayIds.push(a.id); gr.modules += a.panels;
+  }
+  let ok = true;
+  const mppts = [...groups.values()].map((gr) => {
+    let strings = null;
+    for (let k = 1; k <= INVERTER.maxParallel; k++) {
+      const per = gr.modules / k;
+      if (Number.isInteger(per) && per >= minSeries && per <= maxSeries) { strings = k; break; }
+    }
+    if (!strings) ok = false;
+    const per = strings ? gr.modules / strings : gr.modules;
+    return { arrayIds: gr.arrayIds, modules: gr.modules, strings: strings || 1, modulesPerString: per,
+      vocColdV: vocCold ? +(vocCold * per).toFixed(0) : null, vmpHotV: vmpHot ? +(vmpHot * per).toFixed(0) : null, valid: !!strings };
+  });
+  const mpptLimit = phase === 'single' ? INVERTER.mpptsSingle : 3;
+  if (mppts.length > mpptLimit) { ok = false; notes.push(`${mppts.length} roof orientations need ${mppts.length} MPPT inputs; a ${phase}-phase inverter typically has ${mpptLimit}.`); }
+  for (const m of mppts) if (!m.valid) notes.push(`${m.modules} modules on ${m.arrayIds.join(', ')} cannot be split into equal strings of ${minSeries}-${maxSeries} modules.`);
+  const dcAc = +(kWp / inverterKwac).toFixed(2);
+  if (dcAc > dcac + 0.05) { ok = false; notes.push(`DC/AC ${dcAc} is above the ${dcac} design ratio.`); }
+  if (mode === 'roof-potential') notes.unshift('Roof potential: needs a three-phase supply (up to 15 kWac under Solar ATAP); not a system design.');
+  notes.push(`String window: ${minSeries}-${maxSeries} modules (Voc at ${CLIMATE_KL.designMinCellC ?? 15} °C = ${vocCold?.toFixed(1)} V each, 600 V max; MPPT from 90 V at ${CLIMATE_KL.designMaxCellC ?? 75} °C cell).`);
+  return { programme: GRID_RULES_MY?.programme || 'Solar ATAP', phase, limitKwac: capKwac, inverterKwac, dcAc, mppts,
+    withinLimits: ok, notes, maxModulesPerString: maxSeries, minModulesPerString: minSeries,
+    // older field names, still read by the viewer's fallbacks
+    suggestedInverterKwac: inverterKwac, dcAcRatio: dcAc, withinLimit: ok };
 }
 
 // ----------------------------------------------------------------------------- heatmap

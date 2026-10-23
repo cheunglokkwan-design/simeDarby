@@ -76,3 +76,19 @@ test('max plan on the real scan: disjoint modules inside each roof outline, setb
     } else assert.ok(Math.hypot(A.c[0] - B.c[0], A.c[1] - B.c[1], A.c[2] - B.c[2]) > 1.0, `${A.id} clashes with ${B.id}`);
   }
 });
+
+test('default plan wires as equal strings under 600 V and reports a ground-calibrated yield', { skip: !have }, () => {
+  const twin = JSON.parse(fs.readFileSync(new URL('twin.json', dir), 'utf8'));
+  const occ = { ...twin.occupancy, data: new Uint8Array(fs.readFileSync(new URL('occupancy.bin', dir))) };
+  const s = planArray(twin, occ, {}).summary;
+  assert.equal(s.mode, 'system');
+  assert.ok(s.grid.withinLimits, s.grid.notes.join(' '));
+  assert.ok(s.grid.inverterKwac <= 5 && s.grid.dcAc <= 1.25, `${s.grid.inverterKwac} kWac, DC/AC ${s.grid.dcAc}`);
+  assert.ok(s.grid.mppts.length <= 2);
+  for (const m of s.grid.mppts) {
+    assert.equal(m.strings * m.modulesPerString, m.modules, 'equal strings only');
+    assert.ok(m.vocColdV <= 600, `Voc cold ${m.vocColdV} V`);
+  }
+  assert.ok(s.yield.groundCalibratedKwh < s.yield.modelledKwh);
+  assert.ok(s.specificYieldCalibrated >= 1100 && s.specificYieldCalibrated <= 1350, `${s.specificYieldCalibrated} kWh/kWp`);
+});
