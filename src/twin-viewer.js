@@ -10,6 +10,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import * as mock from './twin-mock.js';
+import { placeBattery } from './twin/battery.js';
 import * as GaussianSplats3D from '@mkkellogg/gaussian-splats-3d';
 
 const $ = (id) => document.getElementById(id);
@@ -218,7 +219,7 @@ const sunLight = new THREE.DirectionalLight(0xfff1d6, 2.0);
 scene.add(hemi, sunLight, sunLight.target);
 
 const groups = {};
-for (const k of ['scan', 'grid', 'roofs', 'heat', 'rejected', 'panels', 'dims', 'sun']) { groups[k] = new THREE.Group(); groups[k].name = k; scene.add(groups[k]); }
+for (const k of ['scan', 'grid', 'roofs', 'heat', 'rejected', 'panels', 'battery', 'dims', 'sun']) { groups[k] = new THREE.Group(); groups[k].name = k; scene.add(groups[k]); }
 
 function clearGroup(g) {
   const labels = [];
@@ -1138,13 +1139,91 @@ function applyPlan(plan) {
   state.plan = plan;
   if (state.selected && !plan.panels.some((p) => p.id === state.selected)) closeSelection();
   if (state.selectedArray && !plan.arrays.some((a) => a.id === state.selectedArray)) state.selectedArray = null;
-  buildPanels(); buildRejected(); buildHeat(); buildDims();
+  buildPanels(); buildRejected(); buildHeat(); buildDims(); buildBattery();
   setVisible(groups.heat, $('lyrHeat').checked);
   setVisible(groups.rejected, $('lyrRejected').checked);
   updatePanelSun();
   scheduleDayTotal();
   renderSummary(); renderCad(); renderPanelPick();
   if (state.selected) renderModuleDetail();
+}
+
+// ------------------------------------------------------------------ battery
+// Green box on the chosen wall, dashed cable route from the array, faint
+// outlines at the runner-up spots. Placed by src/twin/battery.js.
+const BATTERY_ID = '__battery';
+let batteryMesh = null;
+function buildBattery() {
+  clearGroup(groups.battery);
+  batteryMesh = null; state.battery = null;
+  if (!state.data?.real || !state.occ || !state.plan?.panels.length) { renderBattery(); return; }
+  let r;
+  try { r = placeBattery(state.twin, state.occ, state.plan, { northBearing: state.north, lat: state.lat, lon: state.lon }); }
+  catch (e) { console.warn('twin: battery placement failed', e); renderBattery('Battery placement failed on this scan.'); return; }
+  const b = r.battery;
+  state.battery = b; state.batteryAlternatives = r.alternatives || [];
+  if (!b) { renderBattery(r.why); return; }
+  const n = new THREE.Vector3(b.normal[0], 0, b.normal[2]).normalize();
+  const unit = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(b.widthM, b.heightM, b.depthM), new THREE.MeshStandardMaterial({ color: 0x16a34a, emissive: 0x14532d, emissiveIntensity: 0.6, roughness: 0.5 }));
+  const face = new THREE.Mesh(new THREE.PlaneGeometry(b.widthM * 0.8, b.heightM * 0.85), new THREE.MeshBasicMaterial({ color: 0xbbf7d0 }));
+  face.position.z = b.depthM / 2 + 0.002;
+  const led = new THREE.Mesh(new THREE.PlaneGeometry(b.widthM * 0.5, 0.03), new THREE.MeshBasicMaterial({ color: 0x15803d }));
+  led.position.set(0, b.heightM * 0.3, b.depthM / 2 + 0.004);
+  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(body.geometry), new THREE.LineBasicMaterial({ color: 0xffffff }));
+  // It sits under the eave, so from above the roof hides it: a see-through
+  // silhouette drawn on top keeps it findable.
+  const xray = new THREE.Mesh(body.geometry, new THREE.MeshBasicMaterial({ color: 0x4ade80, transparent: true, opacity: 0.45, depthTest: false }));
+  xray.renderOrder = 6;
+  unit.add(body, face, led, edges, xray);
+  unit.position.copy(V3(b.position));
+  unit.lookAt(unit.position.clone().add(n));
+  batteryMesh = body;
+  groups.battery.add(unit);
+  groups.battery.add(label(`Battery · ${fmt(b.capacityKwh, 1)} kWh`, 'battery-label', V3(b.position).add(new THREE.Vector3(0, b.heightM / 2 + 0.35, 0))));
+  if (b.cablePath?.length > 1) {
+    const g = new THREE.BufferGeometry().setFromPoints(b.cablePath.map(V3));
+    const line = new THREE.Line(g, new THREE.LineDashedMaterial({ color: 0x4ade80, dashSize: 0.3, gapSize: 0.18, depthTest: false, transparent: true }));
+    line.computeLineDistances(); line.renderOrder = 5;
+    groups.battery.add(line);
+  }
+  for (const a of state.batteryAlternatives) {
+    const ghost = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(b.widthM, b.heightM, b.depthM)), new THREE.LineBasicMaterial({ color: 0x86efac, transparent: true, opacity: 0.55 }));
+    ghost.position.copy(V3(a.position));
+    ghost.lookAt(ghost.position.clone().add(new THREE.Vector3(a.normal[0], 0, a.normal[2])));
+    groups.battery.add(ghost);
+  }
+  setVisible(groups.battery, $('lyrBattery').checked);
+  renderBattery();
+}
+function renderBattery(why) {
+  const box = $('batteryInfo');
+  const b = state.battery;
+  if (!b) { box.innerHTML = `<p class="note">${escapeHtml(why || 'Battery placement needs the drone scan.')}</p>`; return; }
+  const alts = (state.batteryAlternatives || []).map((a) => `${a.wallFaces} wall, ${fmt(a.cableRunM, 1)} m cable, ${fmt(a.sunHoursYear)} h sun${a.sheltered ? '' : ', exposed'}`);
+  box.innerHTML = `<p><b>${escapeHtml(b.reason.headline)}</b></p>
+    <table class="kv"><tbody>
+      <tr><td>Model</td><td>${escapeHtml(b.name)}</td></tr>
+      <tr><td>Size (W × H × D)</td><td>${fmt(b.widthM * 1000)} × ${fmt(b.heightM * 1000)} × ${fmt(b.depthM * 1000)} mm · ${fmt(b.weightKg)} kg</td></tr>
+      <tr><td>Cable run</td><td>≈ ${fmt(b.cableRunM, 1)} m</td></tr>
+      <tr><td>Direct sun on unit</td><td>${fmt(b.sunHoursYear)} h/yr</td></tr>
+      <tr><td>Shelter</td><td>${b.sheltered ? `roof ${fmt(b.roofAboveM, 1)} m above` : 'none: add a rain hood'}</td></tr>
+    </tbody></table>
+    <button class="btn" type="button" id="batteryWhy">Why here?</button>
+    ${alts.length ? `<p class="note">Next-best spots (faint outlines): ${alts.map(escapeHtml).join('; ')}.</p>` : ''}`;
+  $('batteryWhy').onclick = () => selectBattery(true);
+}
+function selectBattery(focus = false) {
+  const b = state.battery;
+  if (!b) return;
+  state.selected = BATTERY_ID;
+  refreshPanelStyles();
+  $('popupKicker').textContent = `Battery · ${b.wallFaces}-facing wall`;
+  $('popupTitle').textContent = b.reason.headline;
+  $('popupBullets').innerHTML = b.reason.bullets.slice(0, 4).map((x) => `<li>${escapeHtml(x)}</li>`).join('');
+  $('popupStats').innerHTML = `<span><b>${fmt(b.capacityKwh, 1)}</b> kWh</span><span><b>${fmt(b.cableRunM, 1)} m</b> cable</span><span><b>${fmt(b.sunHoursYear)}</b> h sun/yr</span>`;
+  $('popup').hidden = false;
+  if (focus) flyTo(V3(b.position), 7);
 }
 
 // ------------------------------------------------------------------ UI: summary + assumptions
@@ -1277,8 +1356,8 @@ function closeSelection() {
 }
 function placePopup() {
   if ($('popup').hidden || !state.selected) return;
-  const p = state.plan.panels[state.panelIdx.get(state.selected)];
-  if (!p) return;
+  const p = state.selected === BATTERY_ID ? { centre: state.battery?.position } : state.plan.panels[state.panelIdx.get(state.selected)];
+  if (!p?.centre && !p?.corners) return;
   const v = V3(p.centre || p.corners[0]).project(camera);
   const el = $('popup'), W = viewport.clientWidth, H = viewport.clientHeight;
   if (v.z > 1) { el.style.visibility = 'hidden'; return; }
@@ -1504,6 +1583,7 @@ function setRay(ev) {
 function pick() {
   const hits = raycaster.intersectObjects(panelMeshes, false);
   if (hits.length) return { type: 'panel', i: hits[0].object.userData.panel, point: hits[0].point };
+  if (batteryMesh && groups.battery.visible && raycaster.intersectObject(batteryMesh, false).length) return { type: 'battery' };
   if (groups.rejected.visible) {
     const h = raycaster.intersectObjects(rejectedMeshes, false);
     if (h.length) { const best = h.find((x) => rejClass(state.plan.rejected[x.object.userData.rejected]) !== 'band') || h[0]; return { type: 'rejected', i: best.object.userData.rejected }; }
@@ -1519,11 +1599,12 @@ function processHover() {
   const tip = $('tooltip');
   const hoverId = hit?.type === 'panel' ? state.plan.panels[hit.i].id : null;
   if (hoverId !== state.hover) { state.hover = hoverId; refreshPanelStyles(); }
-  canvas.style.cursor = hit?.type === 'panel' ? 'pointer' : '';
+  canvas.style.cursor = hit?.type === 'panel' || hit?.type === 'battery' ? 'pointer' : '';
   if (!hit) { tip.hidden = true; return; }
   let html = '';
   tip.className = '';
   if (hit.type === 'panel') { const p = state.plan.panels[hit.i]; html = `<b>${escapeHtml(p.id)}</b>${fmt(p.annualKwh)} kWh/yr · ${fmt((p.shadeLoss || 0) * 100, 1)}% shade · ${state.sunlit[hit.i] != null ? `${fmt(state.sunlit[hit.i] * 100)}% sunlit now` : ''}<br><span style="opacity:.7">Click for why it is here</span>`; }
+  else if (hit.type === 'battery') { const b = state.battery; html = `<b>Battery · ${fmt(b.capacityKwh, 1)} kWh</b>${escapeHtml(b.wallFaces)}-facing wall · ${fmt(b.cableRunM, 1)} m cable<br><span style="opacity:.7">Click for why it is here</span>`; }
   else if (hit.type === 'rejected') {
     const r = state.plan.rejected[hit.i];
     if (rejClass(r) === 'unneeded') html = `<b>Usable, not needed at this system size</b>${escapeHtml(r.why || '')}`;
@@ -1545,6 +1626,7 @@ canvas.addEventListener('pointerup', (e) => {
   setRay(e);
   const hit = pick();
   if (hit?.type === 'panel') selectPanel(state.plan.panels[hit.i].id);
+  else if (hit?.type === 'battery') selectBattery();
   else if (state.selected) closeSelection();
 });
 canvas.addEventListener('dblclick', (e) => {
@@ -1620,6 +1702,7 @@ function wireUi() {
   $('lyrRejected').onchange = () => setVisible(groups.rejected, $('lyrRejected').checked);
   $('lyrDims').onchange = () => { buildDims(); };
   $('lyrScanShadow').onchange = () => requestScanShadow();
+  $('lyrBattery').onchange = () => setVisible(groups.battery, $('lyrBattery').checked);
   $('lyrSunPath').onchange = () => { setVisible(groups.sun, $('lyrSunPath').checked); if (sunSprite) sunSprite.visible = state.sun.elevation > -2; };
   bindRange('pointSize', 'pointSizeOut', (v) => `${v.toFixed(1)}×`, (v) => { if (pointsMat) pointsMat.uniforms.uSize.value = pointsMat.uniforms.uBase.value * v; });
   // sun

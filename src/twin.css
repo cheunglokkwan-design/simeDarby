@@ -185,3 +185,9 @@ table .group td { color: var(--text); font-weight: 700; padding-top: 12px; borde
   #legend { bottom: 120px; }
   #popup { width: min(300px, calc(100% - 24px)); }
 }
+
+/* battery: green, so it reads apart from the blue panels and red exclusions */
+.battery-label { background: #15803d; color: #fff; font: 600 11px/1.2 system-ui, sans-serif; padding: 3px 7px; border-radius: 999px; white-space: nowrap; pointer-events: none; box-shadow: 0 1px 4px rgb(0 0 0 / .35); }
+#batteryInfo table.kv { width: 100%; font-size: 12px; border-collapse: collapse; margin: 6px 0; }
+#batteryInfo table.kv td { padding: 3px 0; border-bottom: 1px solid var(--line, #e5e7eb); }
+#batteryInfo table.kv td:last-child { text-align: right; }

@@ -113,7 +113,10 @@
           <p class="note" id="sizeNote">ATAP: sized for a 5 kWac single-phase inverter (the Solar ATAP limit, an AC rating) at DC/AC 1.2, about 6 kWp of panels, wired as equal strings under 600 V.</p>
           <label class="row"><span>Min. sun</span><input type="range" id="flux" min="0" max="1600" step="10" value="0" /><output id="fluxOut">off</output></label>
           <p class="note">Min. sun skips roof areas whose annual irradiation (kWh/m²/yr) is below the threshold. Turn on the heatmap below to see it.</p>
+          <h3>Battery</h3>
+          <div id="batteryInfo"><p class="note">Placed after the array is planned.</p></div>
           <h3>Layers</h3>
+          <label class="chk"><input type="checkbox" id="lyrBattery" checked /> Battery and cable route</label>
           <label class="chk"><input type="checkbox" id="lyrHeat" /> Roof sun heatmap</label>
           <label class="chk"><input type="checkbox" id="lyrRejected" checked /> Excluded and unused areas</label>
           <label class="chk"><input type="checkbox" id="lyrDims" /> Show dimensions (on in CAD)</label>
