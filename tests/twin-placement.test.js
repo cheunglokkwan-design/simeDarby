@@ -154,7 +154,7 @@ test('energy: specific yield, PR, POA, thermal and monthly shape are plausible f
   assert.ok(Math.abs(sy(yN) / sy(yS) - 1) <= 0.08, `N/S ${sy(yN)} ${sy(yS)}`);
 });
 
-test('size cap: default follows Solar ATAP single-phase (≤ 6.5 kWp, ≤ 2 orientations, ≥ 6 per MPPT), target shrinks whole rows/columns', () => {
+test('size cap: default follows Solar ATAP single-phase (≤ 6.5 kWp DC cap, ≤ 2 orientations, ≥ 6 per MPPT), target shrinks whole rows/columns', () => {
   const d = planArray(house.twin, house.occ, {});
   assert.ok(d.summary.kWp <= 6.5 + 1e-9 && d.summary.kWp > 4, `default ${d.summary.kWp}`);
   const per = new Map();

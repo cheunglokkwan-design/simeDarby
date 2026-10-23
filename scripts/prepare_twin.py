@@ -3,7 +3,7 @@
 Usage:
     python scripts/prepare_twin.py [--ply PATH] [--out public/twins/friend-house] [--renders DIR]
 
-Steps (see docs/twin-contract.md for the output frame and files):
+Steps (see docs/internal/twin-contract.md for the output frame and files):
   a. load the xyz-only PLY, drop floaters (robust crop + statistical outlier removal), voxel-downsample
   b. gravity: coarse "up" = least-variance PCA axis, sign from a roofs-cover-walls test (sloped
      planar patches sit above the adjacent vertical ones); refined so that wall normals are

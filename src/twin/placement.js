@@ -1,7 +1,7 @@
 // Solar array placement on a scanned roof (digital twin).
 // Pure ES module, no DOM; runs in node, the browser and Web Workers.
 //
-// planArray(twin, occupancy, options) -> Plan       (docs/twin-contract.md)
+// planArray(twin, occupancy, options) -> Plan       (docs/internal/twin-contract.md)
 // roofHeatmap(twin, occupancy, options) -> { roofs:[{roofId, cell, nu, nv, values:Float32Array, cells:[{corners, poa}]}], min, max }
 // instantShading(twin, occupancy, plan, date)      -> { panels:[{id, sunlit, watts}], totalW, sun }
 //   (also accepts the viewer's form instantShading(plan, occupancy, sun, { twin, date }))
@@ -24,7 +24,7 @@
 //     are peeled off (≥ 4 modules, no ragged rows). Layout score = energy −
 //     2% per extra array. Each rectangle then slides (2 cm steps) to the centre
 //     of its free span, so margins are symmetric unless that costs > 0.5% energy.
-//  5. Size: default cap = Solar ATAP single-phase (5 kWac × 1.3 DC/AC = 6.5 kWp);
+//  5. Size: default cap = Solar ATAP single-phase (5 kWac × DC/AC 1.2 ≈ 6 kWp);
 //     an exact knapsack picks whole-row/column sub-rectangles of the candidate
 //     blocks (max energy, 1.2 module-years per extra array, ≤ 2 roof orientations
 //     with ≥ 6 modules each = 2 MPPT strings), trimmed blocks are re-centred.

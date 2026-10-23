@@ -2,7 +2,7 @@
 // simulated rooftop solar array, a sun / time-of-day simulation, CAD-style
 // dimensions and per-panel "why here" explanations.
 //
-// Data and algorithms follow docs/twin-contract.md. The real modules in
+// Data and algorithms follow docs/internal/twin-contract.md. The real modules in
 // src/twin/*.js and the prepared scan in public/twins/<id>/ are optional at
 // build time: import.meta.glob only picks up files that exist, and anything
 // missing (or failing) falls back to src/twin-mock.js so the page always works.
@@ -136,15 +136,32 @@ async function fetchBin(url) {
   return r.arrayBuffer();
 }
 // Full-colour Gaussian splat of the scan (scene.splat, already in the twin
-// frame). The point cloud stays as the fallback if it is missing or fails.
+// frame). The grey point cloud is shown while it downloads and stays as the
+// fallback if it is missing or fails. Progress goes to #splatProgress.
 let splatViewer = null;
+function splatProgress(pct, stage) {
+  const box = $('splatProgress');
+  if (pct == null) { box.hidden = true; return; }
+  const p = Math.max(0, Math.min(100, Math.round(pct)));
+  box.hidden = false;
+  box.setAttribute('aria-valuenow', String(p));
+  $('splatProgressBar').style.width = `${p}%`;
+  $('splatProgressText').textContent = stage === 'processing'
+    ? 'Preparing full-colour scan… (grey points meanwhile)'
+    : `Loading full-colour scan ${p}% (grey points meanwhile)`;
+}
 async function loadSplat() {
   if (FORCE_MOCK || params.has('points')) return false;
   const url = `${BASE}twins/${TWIN_ID}/scene.splat`;
   const head = await fetch(url, { method: 'HEAD' }).catch(() => null);
   if (!head?.ok || /html/.test(head.headers.get('content-type') || '')) return false;
-  splatViewer = new GaussianSplats3D.DropInViewer({ sharedMemoryForWorkers: false });
-  await splatViewer.addSplatScene(url, { format: GaussianSplats3D.SceneFormat.Splat, showLoadingUI: false, progressiveLoad: false, splatAlphaRemovalThreshold: 8 });
+  splatProgress(0);
+  // Instant reveal: the points switch off as soon as the splat is ready, so no fade-in gap.
+  const v = new GaussianSplats3D.DropInViewer({ sharedMemoryForWorkers: false, sceneRevealMode: GaussianSplats3D.SceneRevealMode.Instant });
+  // library LoaderStatus: 0 downloading, 1 processing, 2 done
+  const onProgress = (pct, _label, status) => splatProgress(status === 1 ? 100 : pct, status === 1 ? 'processing' : 'downloading');
+  await v.addSplatScene(url, { format: GaussianSplats3D.SceneFormat.Splat, showLoadingUI: false, progressiveLoad: false, splatAlphaRemovalThreshold: 8, onProgress });
+  splatViewer = v; // only once loaded, so the points stay the scan until then
   groups.scan.add(splatViewer);
   return true;
 }
@@ -1091,7 +1108,7 @@ function planOptions(orientation) {
     orientation: orientation === 'auto' ? undefined : orientation,
     setback: o.setback, setbackM: o.setback,
     // atap: leave targetKwp undefined so the planner applies the Solar ATAP cap (DC/AC 1.2 on 5 kWac)
-    targetKwp: o.sizeMode === 'kwp' ? o.targetKwp : o.sizeMode === 'atap' ? (state.api.real.placement ? undefined : 6.5) : null, sizeMode: o.sizeMode, maxPanels: null,
+    targetKwp: o.sizeMode === 'kwp' ? o.targetKwp : o.sizeMode === 'atap' ? (state.api.real.placement ? undefined : 6) : null, sizeMode: o.sizeMode, maxPanels: null,
     fluxThreshold: o.fluxThreshold || 0, minFluxKwhM2: o.fluxThreshold || 0,
     heatmap: state.heat, northOffsetDeg: bearing(), azimuthOffsetDeg: state.north, lat: state.lat, lon: state.lon,
     standoffM: mountStandoff(), gapM: mountInfo()?.gapM ?? 0.02,
@@ -1293,7 +1310,7 @@ function renderSummary() {
     scaleSensitivityText(s, sc),
     pitchText(),
     `<b>Heading assumed:</b> north from scan preparation (bearing ${fmt(t.northBearing || 0, 0)}°)${state.north ? `, corrected by ${state.north > 0 ? '+' : ''}${state.north}° here` : ''}. A drone scan has no compass.`,
-    `<b>Scan:</b> ${state.data.real ? 'Gaussian-splat point cloud converted by ImageToStl, which stripped colour, opacity and splat shape. Points are drawn in neutral greys shaded by surface normal; ~2% floaters were cleaned.' : `Synthetic stand-in house (${escapeHtml(state.data.why || 'real scan not found')}). Same frame and data format as the real twin.`}`,
+    `<b>Scan:</b> ${state.data.real ? 'Drone scan of a team member’s home (a demo house, not an SDP site). Roof planes, obstacles and shading are measured from the splat centres (ImageToStl export, xyz only), drawn as grey points shaded by surface normal; ~2% floaters were cleaned. The Photo view is the original colour Gaussian splat, thinned to the 300,000 most important splats within 25 m of the house for a fast load.' : `Synthetic stand-in house (${escapeHtml(state.data.why || 'real scan not found')}). Same frame and data format as the real twin.`}`,
     ...planAssump.map((a) => `<b>Model:</b> ${escapeHtml(a)}`),
     `<b>Algorithms:</b> planner ${state.api.real.placement ? 'src/twin/placement.js' : 'built-in fallback'}, sun ${state.api.real.sun ? 'src/twin/sun.js' : 'built-in NOAA-style'}, catalogue ${state.api.real.catalogue ? 'src/twin/catalogue.js' : 'built-in indicative datasheets'}, live shading ${state.api.real.instant ? 'planner instantShading' : state.api.shade?.sunlitFraction ? 'src/twin/shade.js' : 'built-in voxel rays'}.`,
     '<b>Live kW:</b> “Typical day” is the planner’s typical sky for the month (climatology); “Clear day” is a cloudless Meinel model with 14% losses. Both include shading from the scan. Stormy afternoons produce much less.',
@@ -1830,11 +1847,15 @@ async function boot() {
   controls.target.copy(state.centre);
   view('oblique');
   requestAnimationFrame(frame);
+  // Start the colour splat download now, in parallel with planning; the grey
+  // points stay on screen until it is ready.
+  const splatReady = loadSplat();
+  splatReady.catch(() => {});
   await runPlan();
   frameArrays();
   $('scanMode').querySelectorAll('button').forEach((b) => { b.onclick = () => setScanMode(b.dataset.mode); });
-  showStatus('Loading full-colour scan…');
-  loadSplat().then((ok) => {
+  splatReady.then((ok) => {
+    splatProgress(null);
     $('scanMode').hidden = !ok;
     if (ok) {
       setScanMode('photo');
@@ -1843,8 +1864,7 @@ async function boot() {
       // Pull back so the whole house and plot are in frame, not just the array.
       frameArrays(2.2);
     }
-    showStatus('');
-  }).catch((e) => { console.warn('Colour splat unavailable, showing the point cloud:', e); showStatus(''); });
+  }).catch((e) => { splatProgress(null); console.warn('Colour splat unavailable, showing the point cloud:', e); });
   if (import.meta.env.DEV) window.__twin = { state, scene, camera, controls, selectPanel, view, csvText, dxfText };
 }
 boot().catch((e) => { console.error(e); showStatus(`Could not start the viewer: ${e.message}`, true); });

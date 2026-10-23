@@ -33,7 +33,7 @@ Site screening opens by default. Community solar and Battery storage are visible
 
 **Is it automatically approving installation?** It prioritises sites and prepares a reviewable handover. Structure, connection and permissions are checked by the project professionals.
 
-**What does the splat contribute?** A viewable reconstruction supports roof inspection and spotting mismatches. Current draft placement uses mapped geometry and marked exclusions rather than automatically surveyed roof planes.
+**What does the splat contribute?** A viewable reconstruction supports roof inspection and spotting mismatches. In Phase 2 the digital twin (demo house only: a team member's home, not an SDP site) detects roof planes and obstacles from the scan and places a strung, setback-respecting draft array plus battery location. Township layouts still use mapped footprints and marked exclusions. Neither is a surveyed or certified design.
 
 **What is original?** The useful integration is township comparison → explained recommendation → site evidence → consistent handover, with a real inspection demonstration. The underlying solar mapper is directly aligned with the provided challenge.
 

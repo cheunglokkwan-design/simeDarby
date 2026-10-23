@@ -2,7 +2,7 @@
 //
 // The real scan (public/twins/friend-house/*) and the real algorithms
 // (src/twin/{placement,sun,shade,catalogue}.js) are owned by other pieces of
-// the project (see docs/twin-contract.md). This module lets twin.html run
+// the project (see docs/internal/twin-contract.md). This module lets twin.html run
 // before they exist, and supplies small geometric helpers (voxel ray casting,
 // clear-sky irradiance) the viewer uses for visuals such as the moving shadow
 // pattern on each panel. Everything here follows the twin frame of the

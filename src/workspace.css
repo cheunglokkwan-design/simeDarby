@@ -211,6 +211,18 @@ dialog#settings:not([open]) { display: none; }
 .excluded-row { background: #fff6ef; }
 .control-tag { display: block; }
 .coverage-note { font-size: 11px; margin: 12px 0; }
+.candidate-cap { font-size: 10px; line-height: 1.5; color: #6a5414; margin-top: 3px; }
+.cap-note { font-size: 11px; color: var(--muted); margin: 8px 0 0; }
+.baseline-check { padding: 12px 0; margin: 12px 0; border-block: 1px solid var(--line); font-size: 12px; }
+.baseline-check h3 { font-size: 13px; margin: 0 0 6px; }
+.baseline-check > p { margin: 0 0 8px; }
+.baseline-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 8px 0; }
+.baseline-stats b, .baseline-stats span { display: block; }
+.baseline-stats b { font-size: 17px; font-variant-numeric: tabular-nums; }
+.baseline-stats span { font-size: 10px; color: var(--muted); }
+.baseline-list { margin: 6px 0; padding-left: 18px; font-size: 11px; }
+.twin-entry { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.twin-entry .note { margin: 6px 0 0; }
 .portfolio-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 12px 0 16px; margin-bottom: 16px; border-block: 1px solid var(--line); }
 .portfolio-summary b, .portfolio-summary span { display: block; }
 .portfolio-summary b { font-size: 19px; font-variant-numeric: tabular-nums; }

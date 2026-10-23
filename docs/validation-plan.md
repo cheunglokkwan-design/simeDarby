@@ -49,9 +49,13 @@ warehouses, malls, homes and roof shapes before claiming broad accuracy.
 
 1. Host and validate the existing GPU reconstruction worker; packaging and mocked
    tests are not evidence of successful reconstruction.
-2. Extract and calibrate roof planes and obstacles from the reconstruction, with
-   user review. Today the layout still uses the mapped footprint on an estimated
-   flat plane, even when a splat is available.
+2. Calibrate and review roof planes and obstacles extracted from the reconstruction.
+   The digital twin (twin.html, demo house only: a team member's home, not an SDP
+   site) already detects roof planes and obstacles from the scan and places a
+   strung, setback-respecting draft array plus battery location, but its scale is
+   estimated (about ±15 %) and location/north are assumed. Township layouts still
+   use the mapped footprint on an estimated flat plane. Neither is a surveyed or
+   certified design.
 3. Match synchronized PV and load time series, and compare complete before/after
    electricity bills. Cached battery values do not fully cost grid-charge losses.
 4. Validate maintenance assumptions, add replacement costs and sensitivity

@@ -281,7 +281,7 @@ With LR5-54HTH-430:
 - 10-year export offset tenure, then self-consumption only.
 - The cap is generally read against inverter AC rating. DC/AC ratios of
   1.0-1.3 are typical. Confirm the DC rule with the RPVSP.
-- Default `targetKwp` = 5-6.5 kWp for an unknown single-phase terrace house.
+- Default `targetKwp` ≈ 6 kWp (Solar ATAP single-phase 5 kWac × DC/AC 1.2) for an unknown single-phase terrace house.
 - Sources: [SEDA ATAP](https://www.seda.gov.my/reportal/atap/),
   [The Star 2025-12-20](https://www.thestar.com.my/news/nation/2025/12/20/embracing-rooftop-power).
 

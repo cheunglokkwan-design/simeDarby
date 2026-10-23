@@ -3,7 +3,7 @@
 // 1900-2100, which is far below anything else in the twin's error budget.
 // Pure ES module, no DOM: runs in node, the browser and Web Workers.
 //
-// Conventions (docs/twin-contract.md):
+// Conventions (docs/internal/twin-contract.md):
 //   azimuth  : degrees from true north, clockwise (90 = east)
 //   elevation: degrees above the horizon, refraction-corrected
 //   twin frame: x = east, y = up, z = south when northBearing = 0.

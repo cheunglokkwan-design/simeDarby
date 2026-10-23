@@ -27,7 +27,7 @@ The app starts with a township map and screens roofs before any drone flight. Dr
 
 **Ranking today:** 40% generation, 25% estimated onsite-use share, 20% modelled payback and 15% sampled sun exposure, with mapped review penalties. These are heuristic weights, not learned or expert-calibrated accuracy. Unknown evidence is shown separately; close scores do not establish a meaningful difference.
 
-**Drone / Gaussian-splat role:** overlapping footage can reconstruct a viewable 3D scene. A Gaussian splat is useful for visual inspection. In the current app, panel placement uses the mapped footprint; the splat does not automatically supply surveyed roof planes, structural strength or installation approval. Finished scans can be imported. The prepared remote GPU processing path still requires hosting and a demonstrated end-to-end run.
+**Drone / Gaussian-splat role:** overlapping footage can reconstruct a viewable 3D scene. A Gaussian splat is useful for visual inspection. In the current app, the digital twin (Phase 2, shown on a demo house: a team member's home, not an SDP site) detects roof planes and obstacles from the scan and places a strung, setback-respecting draft array plus a battery location; township layouts still use mapped footprints. Neither is a surveyed or certified design, and neither supplies structural strength or installation approval. Finished scans can be imported. The prepared remote GPU processing path still requires hosting and a demonstrated end-to-end run.
 
 **Software stack:** JavaScript/Vite web app; MapLibre and deck.gl for the township map and overlays; a browser Web Worker for shadow calculations; pvlib/PVGIS-derived yield data; Three.js and GaussianSplats3D for scan viewing. Shortlists, study notes and local scans remain on the current device unless an explicit external export/integration is used.
 
@@ -43,7 +43,7 @@ The app starts with a township map and screens roofs before any drone flight. Dr
 | 4. The solution | Compare sites, inspect the evidence, export a study brief. | Three screenshots from the final app: candidates, evidence, handover. |
 | 5. How it works | Open building geometry + estimated heights + sampled building shadows + weather-derived yield + demand assumptions. | A plain pipeline with source labels. Category demand and geometry are estimates unless replaced by site evidence. |
 | 6. What is different | A recommendation includes its reasoning and the work needed to check it. | Compare two candidates; show one specific evidence gap and a flagged/excluded existing installation. Avoid claiming the mapper concept itself is novel: it is in the brief. |
-| 7. Working demonstration | From township to a reviewable shortlist. | Select a site, explain its generation and demand basis, inspect its main unknown, add it and open the printable study brief. Optional drone scan supports inspection; it does not automatically extract a certified roof design. |
+| 7. Working demonstration | From township to a reviewable shortlist. | Select a site, explain its generation and demand basis, inspect its main unknown, add it and open the printable study brief. Phase 2 (twin.html, demo house only): the drone scan's roof planes and obstacles drive a strung draft array and battery location; township layouts use mapped footprints. Neither is a certified roof design. |
 | 8. Impact and value | Spend study effort on better-supported candidates; make decisions traceable. | Measurement plan: accepted candidates per ten recommendations, missed disqualifiers, analyst time and changes after bills/surveys. Environmental figures are modelled scenarios, not realised reductions. |
 | 9. Feasible pilot | Test ten authorised sites against an independent expert and a largest-roof baseline. | Roof measurements, existing-PV check, bills, property access, installer feedback. Freeze original recommendations before reviewing them. Pilot and commercial terms are proposed, not agreed. |
 | 10. The ask | Help us validate a ten-site pilot and measure shortlist quality. | Team, working application, named pilot needs, verified link/QR once available. |
@@ -54,7 +54,7 @@ The app starts with a township map and screens roofs before any drone flight. Dr
 - It combines building geometry, estimated heights, sampled shadow modelling, weather-derived solar yield and category-based electricity-demand assumptions.
 - Users can inspect priority factors, replace selected assumptions with source-referenced evidence, assemble a study shortlist and export a brief.
 - Known existing-solar and unusable-roof cases can be excluded. Unknown sites are not confirmed panel-free; review coverage is incomplete.
-- Optional Gaussian-splat inspection and draft panel placement support review. Draft placement uses mapped geometry; it is not a surveyed, structurally approved installation design.
+- Optional Gaussian-splat inspection and draft panel placement support review. Township draft placement uses mapped footprints; the Phase 2 digital twin (demo house only) detects roof planes and obstacles from the scan and places a strung, setback-respecting draft array plus battery location. Neither is a surveyed, structurally approved installation design.
 
 ## What needs proof — do not present as completed
 

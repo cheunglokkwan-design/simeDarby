@@ -4,15 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Digital twin: rooftop solar</title>
-    <meta name="description" content="Drone-scanned house with a simulated rooftop solar array, sun simulation and CAD dimensions." />
+    <meta name="description" content="Phase 2 of the solar site shortlist: verify one roof from a drone scan. Demo on a team member's home (not an SDP site) with a simulated draft array, sun simulation and CAD dimensions." />
     <link rel="stylesheet" href="/src/twin.css" />
   </head>
   <body>
     <header id="topbar">
-      <a class="brand" href="./" title="Back to the Solar Opportunity Mapper">
+      <a class="brand" href="%BASE_URL%" title="Back to the township shortlist">
         <span class="logo" aria-hidden="true">☀</span>
         <span><b id="twinTitle">Digital twin</b><small id="twinSub">Loading scan…</small></span>
       </a>
+      <a class="badge phase" href="%BASE_URL%" title="Phase 1 shortlists township sites on the map; Phase 2 checks one shortlisted roof in detail from a drone scan">Phase 2 · verify a shortlisted roof</a>
       <span class="badge" id="sourceBadge" title="Where the data on this page comes from">Loading…</span>
       <span class="seg" id="scanMode" role="group" aria-label="How the scan is drawn" hidden><button type="button" class="segbtn" data-mode="photo" aria-pressed="true" title="Full-colour Gaussian splat from the drone footage">Photo</button><button type="button" class="segbtn" data-mode="points" aria-pressed="false" title="Grey point cloud: geometry the planner measured">Points</button></span>
       <nav class="views" aria-label="Camera views">
@@ -23,7 +24,7 @@
       </nav>
       <div class="tools">
         <button class="btn" id="snapshot" title="Download a PNG of the current view">PNG snapshot</button>
-        <a class="btn" href="./">Back to map</a>
+        <a class="btn back" href="%BASE_URL%">← Back to the shortlist</a>
       </div>
     </header>
 
@@ -45,6 +46,7 @@
         <div id="labels" aria-hidden="true"></div>
         <div id="compass" title="North (drag the North offset in Location to correct the scan heading)" aria-hidden="true"><i></i><span>N</span></div>
         <div id="status" role="status" aria-live="polite" hidden></div>
+        <div id="splatProgress" role="progressbar" aria-label="Loading the full-colour scan" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" hidden><span id="splatProgressText">Loading full-colour scan…</span><i><b id="splatProgressBar"></b></i></div>
         <div id="banner" role="note" hidden></div>
         <div id="tooltip" role="tooltip" hidden></div>
         <div id="popup" hidden role="dialog" aria-labelledby="popupTitle">
@@ -124,7 +126,7 @@
           <label class="chk"><input type="checkbox" id="lyrSunPath" checked /> Sun path</label>
           <label class="row"><span>Point size</span><input type="range" id="pointSize" min="0.5" max="3" step="0.1" value="1.2" /><output id="pointSizeOut">1.2×</output></label>
           <h3>Key</h3>
-          <div class="key"><i class="k-scan"></i>Drone scan (grey points; colours lost in conversion)</div>
+          <div class="key"><i class="k-scan"></i>Drone scan: full-colour splat (Photo) or grey measured points (Points, and while the colour scan loads)</div>
           <div class="key"><i class="k-panel"></i>Simulated module (cyan outline)</div>
           <div class="key"><i class="k-sel"></i>Selected module</div>
           <div class="key"><i class="k-rej"></i>Excluded: shade, obstacle or object on the roof</div>

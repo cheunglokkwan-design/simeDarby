@@ -66,6 +66,16 @@ export const DAYTIME_SHARE = {
   residential: 0.35, apartments: 0.35, retail: 0.7, commercial: 0.75,
   industrial: 0.75, institutional: 0.8, canopy: 0, carpark: 0, unknown: 0.5
 };
+// Most of the PV output a business can use itself, even when its annual
+// daytime demand exceeds generation: panels also run on weekends and holidays
+// when offices, schools and some factories are closed (base load ~30%), and
+// midday output can overshoot load. Office: 5/7 working days + 2/7 x 0.3 ~ 0.8;
+// factory, 6 days ~ 0.9; malls open daily ~ 0.95. Screening ceilings, not interval data.
+export const ONSITE_CEILING = {
+  residential: 1, apartments: 1, retail: 0.95, commercial: 0.8,
+  industrial: 0.9, institutional: 0.75, canopy: 1, carpark: 1, unknown: 0.8
+};
+export const BUSINESS_CATEGORIES = ['retail', 'commercial', 'industrial', 'institutional'];
 
 // Azimuths (deg from north) of the two roof faces perpendicular to the
 // footprint's longest edge: a gable roof's two pitches, or east-west style
@@ -226,7 +236,10 @@ export function scoreSites(sites, a, yieldData = null) {
     // Use its actual module capacity when its improved exposure changes yield;
     // otherwise the financial system size could disagree with the drawn panels.
     const kwp = Math.min(uncappedKwp, policyCap, s.layoutKwCap != null ? Infinity : homeSize, s.layoutKwCap ?? Infinity);
-    const atapCapped = !homes && policyCap < uncappedKwp && Math.abs(kwp - policyCap) < 1e-6;
+    // A draft layout packed up to the cap lands within one module of it.
+    const atapCapped = !homes && policyCap < uncappedKwp && kwp > policyCap - a.panelWatt / 1000 - 1e-6;
+    // Which ATAP limit binds: the 1 MW system cap, or the building's modelled peak demand.
+    const capKind = atapCapped ? (policyCap >= a.atapCapKw - 1e-6 ? 'system' : 'peak-demand') : null;
     const kwh = kwp * y.p50 * shading;
     const kwhP90 = kwp * y.p90 * shading;
     // A CREAM lease uses the whole roof (within ATAP's per-home cap), not just the household's own use.
@@ -236,7 +249,12 @@ export function scoreSites(sites, a, yieldData = null) {
     const hostRequired = s.category === 'carpark' || s.category === 'canopy';
     const hostLinked = hostRequired && !!evidence.hostSiteId && evidence.annualKwh > 0 && evidence.daytimeShare > 0 && evidence.hostTariff > 0;
     const economicsReady = !hostRequired || hostLinked;
-    const selfUse = Math.min(kwh, demand * (hostRequired ? (hostLinked ? evidence.daytimeShare : 0) : DAYTIME_SHARE[s.category]));
+    // Annual daytime demand alone would let a big building "use" 100% of its
+    // output; the category ceiling keeps weekend and holiday generation as export.
+    const onsiteCeiling = ONSITE_CEILING[s.category] ?? 1;
+    const daytimeDemand = demand * (hostRequired ? (hostLinked ? evidence.daytimeShare : 0) : DAYTIME_SHARE[s.category]);
+    const selfUse = Math.min(kwh * onsiteCeiling, daytimeDemand);
+    const onsiteAtCeiling = onsiteCeiling < 1 && kwh > 0 && daytimeDemand >= kwh * onsiteCeiling;
     const exported = kwh - selfUse;
     const capex = kwp * capexPerKwp(s, kwp, a);
     const om = capex * a.omPctCapex;
@@ -266,11 +284,50 @@ export function scoreSites(sites, a, yieldData = null) {
     const excluded = flags.some((f) => EXCLUDING_FLAGS.includes(f));
     Object.assign(s, {
       usable, homes, roofKwp, roofKwh, kwp, kwh, demand, selfUse, exported, capex, om, savings, payback, co2,
-      atapCapped, kwhP90, lifetimeKwh, specificYield: y.p50, yieldP90: y.p90, yieldTilt: y.tilt, economicsReady, hostLinked, energyShading: shading,
+      atapCapped, capKind, uncappedKwp, onsiteCeiling, onsiteAtCeiling, kwhP90, lifetimeKwh, specificYield: y.p50, yieldP90: y.p90, yieldTilt: y.tilt, economicsReady, hostLinked, energyShading: shading,
       selfRatio: selfScore, flags, score, excluded, occupiedStoreys, demandSource
     });
   }
   return sites;
+}
+
+// Ranking order. Scores compare at 0.1-point resolution. Roofs held to the
+// same ATAP cap model near-identical output, so ties are broken by modelled
+// sun exposure, then onsite share, then spare roof beyond the capped system
+// (room to avoid obstacles and shade), not by footprint size or OSM id alone.
+export function compareSites(a, b) {
+  const r = (v, k) => Math.round((Number.isFinite(v) ? v : 0) * k);
+  const headroom = (s) => (s.kwp > 0 && Number.isFinite(s.uncappedKwp) ? s.uncappedKwp / s.kwp : 1);
+  return r(b.score, 10) - r(a.score, 10)
+    || r(b.energyShading ?? b.shading ?? 1, 1000) - r(a.energyShading ?? a.shading ?? 1, 1000)
+    || r(b.selfRatio, 1000) - r(a.selfRatio, 1000)
+    || r(headroom(b), 100) - r(headroom(a), 100)
+    || String(a.id).localeCompare(String(b.id));
+}
+
+export const rankSites = (sites) => sites.filter((s) => !s.excluded).sort(compareSites);
+
+// The brief's test: compare our top N with the naive shortlist of the N largest
+// business roofs by mapped footprint. Counts only what the roof checks recorded;
+// unchecked roofs are reported as such, not assumed clear.
+const UNAVAILABLE = ['existing-solar', 'partial-solar', 'not-buildable'];
+export function largestRoofBaseline(sites, ranked, n = 10) {
+  const biggest = sites.filter((s) => BUSINESS_CATEGORIES.includes(s.category))
+    .sort((a, b) => b.area - a.area || String(a.id).localeCompare(String(b.id))).slice(0, n);
+  const ours = ranked.slice(0, n);
+  const ourIds = new Set(ours.map((s) => s.id));
+  const excluded = biggest.filter((s) => UNAVAILABLE.includes(s.roofCheck?.status));
+  return {
+    n: biggest.length,
+    biggest, ours, excluded,
+    hasSolar: excluded.filter((s) => s.roofCheck.status !== 'not-buildable'),
+    notBuildable: excluded.filter((s) => s.roofCheck.status === 'not-buildable'),
+    overlap: biggest.filter((s) => ourIds.has(s.id)),
+    unclear: biggest.filter((s) => s.roofCheck?.status === 'unclear'),
+    unchecked: biggest.filter((s) => !s.roofCheck),
+    imageryOnly: excluded.every((s) => /imagery/i.test(s.roofCheck.source || '')),
+    examples: excluded.filter((s) => s.name).slice(0, 2)
+  };
 }
 
 // Screening headline: viable roofs -> those with no mapped review flags

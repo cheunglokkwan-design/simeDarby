@@ -6,7 +6,7 @@ import { PolygonLayer, SolidPolygonLayer, ScatterplotLayer, ArcLayer, TextLayer 
 import { TOWNSHIPS } from './townships.js';
 import { fetchOverpass } from './osm.js';
 import { convexHull, makeProjector, pointInPolygon } from './geo.js';
-import { DEFAULT_ASSUMPTIONS, GRID_FLAG, buildSites, scoreSites, priorityBreakdown, summarise, funnel, monthlyPayment, toCSV, toGeoJSON, toKML } from './solar.js';
+import { DEFAULT_ASSUMPTIONS, GRID_FLAG, buildSites, scoreSites, priorityBreakdown, compareSites, rankSites, largestRoofBaseline, summarise, funnel, monthlyPayment, toCSV, toGeoJSON, toKML } from './solar.js';
 import { siteBriefHTML, studyBriefHTML } from './brief.js';
 import { planCream } from './cream.js';
 import { planStorage } from './storage.js';
@@ -76,7 +76,10 @@ const state = {
 // ---------- formatting ----------
 const fmt = (v, d = 0) => (Number.isFinite(v) ? v.toLocaleString('en-MY', { maximumFractionDigits: d, minimumFractionDigits: d }) : '—');
 const rm = (v) => (!Number.isFinite(v) ? '—' : v >= 1e6 ? `RM ${fmt(v / 1e6, 1)}M` : v >= 1e3 ? `RM ${fmt(v / 1e3, 0)}k` : `RM ${fmt(v, 0)}`);
-const power = (kw) => (kw >= 1000 ? `${fmt(kw / 1000, 1)} MW` : `${fmt(kw, 0)} kW`);
+const power = (kw) => (kw >= 1000 ? `${fmt(kw / 1000, 1)} MW` : `${fmt(kw, 0)} kW`); // battery power ratings
+const capacity = (kw) => (!Number.isFinite(kw) ? '—' : kw >= 1000 ? `${(kw / 1000).toLocaleString('en-MY', { maximumFractionDigits: 1 })} MWp` : `${fmt(kw, 0)} kWp`); // PV capacity
+// Why a system is smaller than its roof: the ATAP limit that binds, and what the roof could hold.
+const capNote = (s) => !s.atapCapped ? '' : `${s.capKind === 'system' ? `Capped at ${capacity(state.assumptions.atapCapKw)} (Solar ATAP)` : `Capped at ${capacity(s.kwp)} modelled peak demand (Solar ATAP)`}${s.uncappedKwp > s.kwp ? ` · roof fits ${capacity(s.uncappedKwp)}` : ''}`;
 const years = (y) => (Number.isFinite(y) ? `${fmt(y, 1)} yrs` : 'no payback');
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 const label = (s) => s.name || siteAddress(s) || `${s.categoryLabel} · ${s.id}`;
@@ -372,7 +375,7 @@ function getTooltip({ object, layer }) {
   switch (layer.id) {
     case 'zones':
     case 'zone-labels':
-      return { text: `${zoneName(object)}: community solar\n${fmt(object.homeCount)} homes · ${power(object.kwp)} of solar\nClick for details` };
+      return { text: `${zoneName(object)}: community solar\n${fmt(object.homeCount)} homes · ${capacity(object.kwp)} of solar\nClick for details` };
     case 'batteries':
       return { text: `${label(object.site)}\n${power(object.kw)} battery · cuts peak by ${power(object.peakCutKw)}\nSaves ${rm(object.value)}/yr` };
     case 'substations':
@@ -396,7 +399,7 @@ Already has solar panels (${s.roofCheck.source})` };
       if (s.roofCheck?.status === 'not-buildable') return { text: `${label(s)}
 ${s.roofCheck.note}` };
       if (s.flags.includes('Too small')) return { text: `${label(s)}\nRoof too small for solar` };
-      return { text: `${label(s)}\nScore ${fmt(s.score)}/100 · ${power(s.kwp)} · saves ${rm(s.savings)}/yr` };
+      return { text: `${label(s)}\nScore ${fmt(s.score)}/100 · ${capacity(s.kwp)} · saves ${rm(s.savings)}/yr` };
     }
     default:
       return null;
@@ -536,6 +539,40 @@ function roofCheckNote() {
   return `<p class="note coverage-note">${has + partial} known solar roofs and ${gone} unavailable roofs excluded. Other roofs may already have panels; coverage is incomplete.</p>`;
 }
 
+// The brief's test, in screening form: our top 10 vs simply surveying the 10
+// largest business roofs. Reports only what the roof checks recorded.
+function baselineSummary() {
+  const b = largestRoofBaseline(state.sites, state.ranked, 10);
+  if (!b.n) return null;
+  const reason = (s) => (s.roofCheck.note.split(': ').slice(1).join(': ') || roofStatus(s).label);
+  const examples = b.examples.map(s => `${label(s)} (${reason(s)})`);
+  const n = b.excluded.length;
+  const headline = n
+    ? `Our ${b.imageryOnly ? 'imagery check' : 'imagery and map checks'} found ${n} of the ${b.n} largest roofs already have solar or have no finished building — a largest-roof shortlist would waste those surveys.`
+    : `None of the ${b.n} largest business roofs is recorded as already having solar or being unavailable${b.unchecked.length ? `, but ${b.unchecked.length} have not been checked in imagery yet` : ''}.`;
+  return { b, n, headline, examples };
+}
+
+function baselinePanel() {
+  if (!state.shadingReady || !state.raw) return '';
+  const summary = baselineSummary();
+  if (!summary) return '';
+  const { b, n, headline, examples } = summary;
+  const rank = (s) => state.ranked.indexOf(s) + 1;
+  return `<section class="baseline-check" aria-label="Comparison with a largest-roof shortlist"><h3>Check: vs picking the biggest roofs</h3><p>${esc(headline)}</p>
+    <div class="baseline-stats"><div><b>${n} / ${b.n}</b><span>biggest roofs excluded</span></div><div><b>${b.overlap.length} / ${b.n}</b><span>also in our top ${b.n}</span></div><div><b>${b.unchecked.length + b.unclear.length}</b><span>not yet confirmed in imagery</span></div></div>
+    ${examples.length ? `<p class="note">For example: ${esc(examples.join('; '))}.</p>` : ''}
+    <details><summary>The ${b.n} largest business roofs</summary><ol class="baseline-list">${b.biggest.map(s => `<li><b>${esc(label(s))}</b> · ${fmt(s.area)} m² · ${esc(roofStatus(s).label)}${rank(s) ? ` · our #${rank(s)}` : ''}</li>`).join('')}</ol></details>
+    <p class="note">Screening comparison against recorded roof checks, not expert validation. Checks cover the top-ranked business roofs only; unchecked roofs may still carry panels.</p></section>`;
+}
+
+function baselineBriefHTML() {
+  const summary = baselineSummary();
+  if (!summary) return '';
+  const { b, n, headline, examples } = summary;
+  return `<h2>Check against a largest-roof shortlist</h2><p>${esc(headline)}</p><p>${n} of the ${b.n} largest business roofs excluded · ${b.overlap.length} also in our top ${b.n} · ${b.unchecked.length + b.unclear.length} not yet confirmed in imagery.${examples.length ? ` Examples: ${esc(examples.join('; '))}.` : ''}</p><p class="note">Screening comparison against recorded roof checks (${esc(TOWNSHIPS[state.township].name)}), not expert validation.</p>`;
+}
+
 function studyShortlist() {
   return selectedSites(state.sites, state.shortlists, state.township);
 }
@@ -569,14 +606,14 @@ function summaryMarkup(sites) {
 function candidateRow(s, saved) {
   const status = roofStatus(s), pending = !state.shadingReady;
   const control = s.studyReview?.control || 'unknown';
-  return `<li class="${state.selected === s ? 'sel' : ''} ${s.excluded ? 'excluded-row' : ''}"><button type="button" class="result-button" data-id="${esc(s.id)}" aria-pressed="${state.selected === s}"><div class="candidate-main"><div class="t">${esc(label(s))}</div><div class="candidate-type">${esc(s.categoryLabel)}${saved.some(site => site.id === s.id) ? '<span class="saved-mark">Shortlisted</span>' : ''}</div><div class="candidate-metrics"><span><b>${pending ? '—' : fmt(s.kwh / 1000)}</b> MWh/yr</span><span><b>${pending ? '—' : fmt((s.energyShading ?? s.shading ?? 1) * 100)}%</b> unshaded samples</span></div><div class="candidate-evidence ${s.excluded || status.status === 'unclear' ? 'attention' : ''}">${esc(status.label)}</div><div class="candidate-next">${esc(s.studyReview?.nextAction || (s.economicsReady === false ? 'Demand: no host linked' : s.evidence?.annualKwh ? 'Demand: user-reported, unverified' : 'Demand: category proxy, bills needed'))}</div>${control !== 'unknown' ? `<span class="control-tag">${esc(CONTROL_LABELS[control] || CONTROL_LABELS.unknown)}</span>` : ''}</div><span class="candidate-priority" title="Heuristic model priority; similar scores are not meaningfully different"><b>${pending ? '—' : fmt(s.score)}</b><small>priority</small></span></button></li>`;
+  return `<li class="${state.selected === s ? 'sel' : ''} ${s.excluded ? 'excluded-row' : ''}"><button type="button" class="result-button" data-id="${esc(s.id)}" aria-pressed="${state.selected === s}"><div class="candidate-main"><div class="t">${esc(label(s))}</div><div class="candidate-type">${esc(s.categoryLabel)}${saved.some(site => site.id === s.id) ? '<span class="saved-mark">Shortlisted</span>' : ''}</div><div class="candidate-metrics"><span><b>${pending ? '—' : fmt(s.kwh / 1000)}</b> MWh/yr</span><span><b>${pending ? '—' : fmt((s.energyShading ?? s.shading ?? 1) * 100)}%</b> unshaded samples</span></div>${!pending && s.atapCapped ? `<div class="candidate-cap">${esc(capNote(s))}</div>` : ''}<div class="candidate-evidence ${s.excluded || status.status === 'unclear' ? 'attention' : ''}">${esc(status.label)}</div><div class="candidate-next">${esc(s.studyReview?.nextAction || (s.economicsReady === false ? 'Demand: no host linked' : s.evidence?.annualKwh ? 'Demand: user-reported, unverified' : 'Demand: category proxy, bills needed'))}</div>${control !== 'unknown' ? `<span class="control-tag">${esc(CONTROL_LABELS[control] || CONTROL_LABELS.unknown)}</span>` : ''}</div><span class="candidate-priority" title="Heuristic model priority; similar scores are not meaningfully different"><b>${pending ? '—' : fmt(s.score)}</b><small>priority</small></span></button></li>`;
 }
 
 function findPanel() {
   const [, test] = FILTERS[state.findFilter];
   const saved = studyShortlist();
   const shortlistMode = state.listMode === 'shortlist';
-  const matches = (shortlistMode ? saved : searchSites(state.query.trim() ? [...state.sites].sort((a, b) => b.score - a.score || a.id.localeCompare(b.id)) : state.ranked, state.query).filter(test)).filter(s => state.controlFilter === 'all' || (s.studyReview?.control || 'unknown') === state.controlFilter);
+  const matches = (shortlistMode ? saved : searchSites(state.query.trim() ? [...state.sites].sort(compareSites) : state.ranked, state.query).filter(test)).filter(s => state.controlFilter === 'all' || (s.studyReview?.control || 'unknown') === state.controlFilter);
   const list = matches.slice(0, state.findLimit);
   const viable = matches.length;
   return `
@@ -584,7 +621,7 @@ function findPanel() {
     <div class="list-switch" role="group" aria-label="Candidate lists"><button data-list-mode="ranked" aria-pressed="${!shortlistMode}">Ranked sites</button><button data-list-mode="shortlist" aria-pressed="${shortlistMode}">Shortlist (${saved.length})</button></div>
     ${analysisStatus()}
     ${shortlistMode ? `${saved.length ? summaryMarkup(saved) : '<p class="empty">Choose a ranked site and add it to your study shortlist. It will appear here with its checks and next action.</p>'}<button class="btn primary full-width" data-download-brief ${saved.length && state.shadingReady ? '' : 'disabled'}>Export study brief</button><p class="note">Opens a printable brief for PDF. Saved on this device; suitability remains unverified.</p>` : `
-    <label class="search-label sr-only" for="property-search">Find your property</label>
+    <label class="search-label sr-only" for="property-search">Find a site</label>
     <input id="property-search" type="search" value="${esc(state.query)}" placeholder="Search a building or street" aria-describedby="search-help" />
     <p class="note sr-only" id="search-help">Search or select a rooftop or car park on the map.</p>
     <div class="chips" role="group" aria-label="Property type">${['all', 'business', 'homes', 'carparks'].map(k => `<button class="chip" data-filter="${k}" aria-pressed="${k === state.findFilter}">${FILTERS[k][0]}</button>`).join('')}</div>
@@ -596,6 +633,7 @@ function findPanel() {
     ${!list.length && !shortlistMode ? '<p class="empty">No mapped properties match. Try part of a name, a street or the OSM ID, or choose another township.</p>' : ''}
     ${matches.length > list.length ? `<button class="btn more-results" data-more-results>More properties (${fmt(matches.length - list.length)} remaining)</button>` : ''}
     ${shortlistMode ? '' : roofCheckNote()}
+    ${shortlistMode ? '' : baselinePanel()}
     <details class="validation-note"><summary>Has this shortlist been validated?</summary><p class="note">Not yet. Expert acceptance, missed disqualifiers and staff time have not been measured. Export the review template to compare against an independent expert and a largest-roof baseline.</p><button class="back-link" data-download-review>Export expert review template</button></details>
     <p class="note" id="list-status" role="status"></p>
     <details class="more"><summary>Ranking &amp; assumptions</summary><div class="body">
@@ -606,7 +644,7 @@ function findPanel() {
         <button data-color="sun" aria-pressed="${state.colorBy === 'sun'}">Sun exposure</button>
       </div>
       <p><b>How the score works:</b> 40% annual generation, 25% share used on site, 20% payback, 15% sun exposure (from a 3D shading simulation against neighbouring buildings). Sites needing zoning, heritage or strata approval are scored down by 20%.</p>
-      <p><b>Policy built in:</b> systems are capped at 1 MW or the building's peak demand (15 kW for homes), and exported power is paid at the System Marginal Price under Solar ATAP (2026).</p>
+      <p><b>Policy built in:</b> systems are capped at 1 MWp or the building's peak demand (15 kWp for homes), and exported power is paid at the System Marginal Price under Solar ATAP (2026).</p>
       <p><b>Energy model:</b> pvlib with 19 years of hourly satellite weather data (PVGIS-ERA5). "Expected" is a typical year; "low-sun year" is the 1-in-10 dull year.</p>
     </div></details>`;
 }
@@ -655,7 +693,7 @@ function creamPanel() {
     ${clusters.length ? `<ol class="list" data-list="zones">${clusters.slice(0, state.zoneLimit).map((c) => `
       <li class="${state.selectedZone === c ? 'sel' : ''}"><button type="button" class="result-button" data-zone="${c.id}" aria-pressed="${state.selectedZone === c}">
         <div><div class="t">${zoneName(c)} · ~${fmt(c.homeCount)} homes</div><div class="m">${plural(c.buyers.length, 'potential buyer', 'potential buyers')} · ${fmt(c.kwh ? c.matchedKwh / c.kwh * 100 : 0)}% output matched</div></div>
-        <span class="pill zone">${power(c.kwp)}</span>
+        <span class="pill zone">${capacity(c.kwp)}</span>
       </button></li>`).join('')}</ol>` : '<p class="empty">No housing estates large enough for a community-solar zone here.</p>'}
     ${clusters.length > state.zoneLimit ? '<button class="btn more-results" data-more-zones>Show 10 more proposed groups</button>' : ''}
     <details class="more"><summary>More detail</summary><div class="body">
@@ -730,7 +768,7 @@ $('panel').addEventListener('click', (e) => {
   if (e.target.closest('[data-start]')) {
     if (!state.shadingReady) return;
     const [, test] = FILTERS[state.findFilter];
-    const first = searchSites(state.query.trim() ? [...state.sites].sort((a, b) => b.score - a.score || a.id.localeCompare(b.id)) : state.ranked, state.query).find(test);
+    const first = searchSites(state.query.trim() ? [...state.sites].sort(compareSites) : state.ranked, state.query).find(test);
     if (first) select(first, true);
     return;
   }
@@ -805,10 +843,10 @@ function setSiteView(view) {
 function workflowFooter(s) {
   const added = isShortlisted(s);
   let primary;
-  if (state.siteView === 'potential') primary = '<button class="btn primary" data-view="roof">Review evidence <span aria-hidden="true">→</span></button>';
+  if (state.siteView === 'potential') primary = s.excluded ? '' : '<button class="btn primary" data-view="roof">Review evidence <span aria-hidden="true">→</span></button>';
   else if (state.siteView === 'roof') primary = added ? '<button class="btn primary" data-view="brief">Continue to handover <span aria-hidden="true">→</span></button>' : `<button class="btn primary" data-act="toggle-shortlist" ${state.shadingReady && !s.excluded ? '' : 'disabled'}>${s.excluded ? 'Excluded from new installations' : 'Add to study shortlist'}</button>`;
   else primary = `<button class="btn primary" data-act="brief" ${state.shadingReady ? '' : 'disabled'}>Export site brief</button>`;
-  return `<footer class="workflow-footer"><p id="shortlist-status" class="note" role="status">${added ? 'Saved to study shortlist · local to this device' : !state.shadingReady ? 'Analysis must finish before shortlisting or export.' : 'Screening estimate · professional checks pending'}</p><div>${primary}<button class="btn" data-act="view-shortlist">Shortlist (${studyShortlist().length})</button></div></footer>`;
+  return `<footer class="workflow-footer"><p id="shortlist-status" class="note" role="status">${added ? 'Saved to study shortlist · local to this device' : s.excluded ? 'Excluded from new installations · no study needed' : !state.shadingReady ? 'Analysis must finish before shortlisting or export.' : 'Screening estimate · professional checks pending'}</p><div>${primary}<button class="btn" data-act="view-shortlist">Shortlist (${studyShortlist().length})</button></div></footer>`;
 }
 
 function studyReviewForm(s) {
@@ -825,7 +863,7 @@ function briefStep(s) {
   const layout = state.layouts[s.id] || state.scans[s.id]?.layout;
   return `<section class="workflow-section"><h3>Ready for a professional review</h3><p class="lede">Export this site's assumptions, evidence gaps and next action as a printable brief.</p>
     <p class="handover-state">${isShortlisted(s) ? 'Included in your study shortlist.' : 'This site is not in your study shortlist yet.'} ${s.excluded ? '<b>Excluded from the new-installation ranking.</b>' : ''}</p>
-    <dl class="brief-summary"><div><dt>Modelled system</dt><dd>${power(s.kwp)}</dd></div><div><dt>Installation scenario</dt><dd>${rm(s.capex)}</dd></div><div><dt>Illustrative bill reduction</dt><dd>${s.economicsReady === false ? 'Host data required' : `${rm(s.savings)}/yr`}</dd></div><div><dt>Panel layout</dt><dd>${layout ? `${layout.count} panels · draft` : 'Optional · not generated'}</dd></div><div><dt>Existing panels</dt><dd>${esc(roofStatus(s).label)}</dd></div><div><dt>Property control</dt><dd>${esc(CONTROL_LABELS[s.studyReview?.control] || CONTROL_LABELS.unknown)}</dd></div><div><dt>Next action</dt><dd>${esc(s.studyReview?.nextAction || nextSiteCheck(s))}</dd></div></dl>
+    <dl class="brief-summary"><div><dt>Modelled system</dt><dd>${capacity(s.kwp)}${s.atapCapped ? `<br><small>${esc(capNote(s))}</small>` : ''}</dd></div><div><dt>Installation scenario</dt><dd>${rm(s.capex)}</dd></div><div><dt>Illustrative bill reduction</dt><dd>${s.economicsReady === false ? 'Host data required' : `${rm(s.savings)}/yr`}</dd></div><div><dt>Panel layout</dt><dd>${layout ? `${layout.count} panels · draft` : 'Optional · not generated'}</dd></div><div><dt>Existing panels</dt><dd>${esc(roofStatus(s).label)}</dd></div><div><dt>Property control</dt><dd>${esc(CONTROL_LABELS[s.studyReview?.control] || CONTROL_LABELS.unknown)}</dd></div><div><dt>Next action</dt><dd>${esc(s.studyReview?.nextAction || nextSiteCheck(s))}</dd></div></dl>
     ${studyReviewForm(s)}
     ${shortlistActions(s)}
     <p class="note">Includes output, assumptions and mapped review flags. Roof structure, permissions and connection still need professional checks.</p>
@@ -844,7 +882,7 @@ function evidenceStep(s) {
     ${evidenceSection(s)}
     ${studyReviewForm(s)}
     <details><summary>All checks before proceeding</summary><ul class="study-checks">${studyChecks(s).map(check => `<li>${esc(check)}</li>`).join('')}</ul><p class="note">${scan ? 'A scan is available; its review is not structural approval.' : 'No drone scan is registered. A scan is optional for shortlisting.'}</p></details>
-    <details id="optional-roof-review" ${state.roofReviewOpen ? 'open' : ''}><summary>Optional roof scan &amp; draft layout</summary>${droneSection(s, scan)}</details>
+    <details id="optional-roof-review" ${state.roofReviewOpen ? 'open' : ''}><summary>Optional roof scan &amp; draft layout</summary><div class="twin-entry"><a class="btn" href="${BASE}twin.html" target="_blank" rel="noopener">Open 3D digital twin (demo house)</a><p class="note">Phase 2: after shortlisting, a drone scan lets the planner verify roof planes, obstacles and a draft array. Demo on a team member's home, not an SDP site.</p></div>${droneSection(s, scan)}</details>
   </section>`;
 }
 
@@ -868,7 +906,7 @@ function houseCard(s) {
   return `
     <h4>Per-home options</h4>
     <div class="sub">${esc(s.categoryLabel)}${n > 1 ? ` · one of ${n} homes in this row` : ''} · ${esc(TOWNSHIPS[state.township].name)}${zone ? ` · ${zoneName(zone)}` : ''}</div>
-    <p class="lede" style="margin:6px 0 10px">A ${fmt(kwp, 1)} kW system (${fmt((kwp * 1000) / a.panelWatt)} panels) makes about <b>${fmt(kwhMonth)} kWh a month</b>, sized to a home using ${fmt(a.homeKwhMonth)} kWh.</p>
+    <p class="lede" style="margin:6px 0 10px">A ${fmt(kwp, 1)} kWp system (${fmt((kwp * 1000) / a.panelWatt)} panels) makes about <b>${fmt(kwhMonth)} kWh a month</b>, sized to a home using ${fmt(a.homeKwhMonth)} kWh.</p>
     <div class="options">
       <div class="opt"><h4>Buy outright</h4>
         <b>${rm(perMonth)}</b><span>modelled bill reduction / month</span>
@@ -892,18 +930,31 @@ function houseCard(s) {
     `;
 }
 
+// Excluded roofs (existing panels, no finished building, too small): say why, no study prompt.
+function excludedCard(s, roof) {
+  const checked = ['existing-solar', 'partial-solar', 'not-buildable'].includes(roof.status);
+  const reason = checked ? roof.note : s.flags.includes('Too small') ? `Usable roof supports under ${fmt(state.assumptions.minKwp)} kWp, too small for a viable system.` : s.flags.join(', ');
+  return `<section class="workflow-section"><h3>Why this site is excluded</h3><p class="lede"><span class="badge review">${esc(checked ? roof.label : 'Excluded · too small')}</span></p>
+    <div class="site-alert attention"><b>${esc(reason)}</b><p>${checked ? 'Recorded in the imagery check, so it is left out of the ranking, the shortlist and the headline totals.' : 'Left out of the ranking, the shortlist and the headline totals.'}</p><small>${esc(checked ? roof.source : 'Mapped footprint and usable-area assumption')}</small></div>
+    <p class="note">If a site visit shows this record is wrong, record a new panel check under Evidence. A user note cannot clear a roof with known installed panels.</p>
+    <details><summary>Mapped roof details</summary>${kv([['Footprint', `${fmt(s.area)} m²`], ['Roof potential before exclusion', capacity(s.uncappedKwp)], ['Mapped flags', esc(s.flags.join(', '))]])}<p class="note">Outline: <a href="https://www.openstreetmap.org/${esc(s.id)}" target="_blank" rel="noopener">${esc(s.id)}</a>.</p></details>
+  </section>`;
+}
+
 function siteCard(s) {
   const breakdown = priorityBreakdown(s);
   const roof = roofStatus(s), ready = state.shadingReady;
+  if (s.excluded) return excludedCard(s, roof);
   return `<section class="workflow-section"><h3>Why consider this site?</h3><p class="lede">${fitBadge(s)} <span class="priority-total">${ready ? fmt(s.score) : '—'} / 100 · model priority</span></p>
     <p class="note">Similar scores are comparable opportunities, not a proven order. Use the evidence to decide which to study.</p>
-    <div class="screening-facts"><div><b>${fmt(s.usable)} m²</b><span>${s.evidence?.usableM2 ? 'user-reported usable area' : 'assumed usable area'}</span></div><div><b>${ready ? fmt(s.kwh / 1000) : '—'} MWh/yr</b><span>modelled generation · not measured</span></div><div><b>${ready && Number.isFinite(s.shading) ? fmt((s.energyShading ?? s.shading) * 100) : '—'}%</b><span>sun exposure · sampled model</span></div><div><b>${s.economicsReady === false || !ready ? '—' : `${fmt(s.selfRatio * 100)}%`}</b><span>${s.economicsReady === false ? 'onsite use needs host data' : 'onsite use · annual demand proxy'}</span></div></div>
+    ${ready && s.atapCapped ? `<p class="cap-note"><span class="badge review">${esc(capNote(s))}</span> Several capped roofs model the same output; ties are ordered by sun exposure, onsite share, then spare roof.</p>` : ''}
+    <div class="screening-facts"><div><b>${fmt(s.usable)} m²</b><span>${s.evidence?.usableM2 ? 'user-reported usable area' : 'assumed usable area'}</span></div><div><b>${ready ? fmt(s.kwh / 1000) : '—'} MWh/yr</b><span>modelled generation · not measured</span></div><div><b>${ready && Number.isFinite(s.shading) ? fmt((s.energyShading ?? s.shading) * 100) : '—'}%</b><span>sun exposure · sampled model</span></div><div><b>${s.economicsReady === false || !ready ? '—' : `${fmt(s.selfRatio * 100)}%`}</b><span>${s.economicsReady === false ? 'onsite use needs host data' : s.onsiteAtCeiling ? `onsite use · ${esc(s.categoryLabel.toLowerCase())} ceiling (weekends exported) · demand proxy, unverified` : 'onsite use · demand proxy, unverified'}</span></div></div>
     <ol class="recommendation-reasons"><li>${fmt(s.usable)} m² available under the ${s.evidence?.usableM2 ? 'user-reported area' : 'category usable-area assumption'}.</li><li>${ready ? `${fmt(s.kwh / 1000)} MWh/year under the current yield and shading scenario.` : 'Generation awaits the shadow calculation.'}</li><li>${s.economicsReady === false ? 'Host demand must be linked before evaluating savings.' : s.evidence?.annualKwh ? 'User-reported consumption replaces the category proxy; interval matching remains unverified.' : 'Category demand suggests potential use for the output; actual bills must confirm it.'}</li></ol>
     <div class="site-alert ${s.excluded || roof.status === 'unclear' ? 'attention' : ''}"><b>${esc(roof.label)}</b><p>${esc(s.studyReview?.nextAction || nextSiteCheck(s))}</p><small>${esc(roof.source)}</small></div>
     <p class="note">Priority is a screening heuristic. Site access, structure, electrical connection and actual savings are not established.</p>
     <details><summary>Explain the priority score</summary>${kv(breakdown.parts.map(part => [part.label, `${fmt(part.points, 1)} / ${part.maximum} points`]))}<p class="note">${breakdown.multiplier < 1 ? `Mapped review flags apply a ×${breakdown.multiplier} multiplier.` : 'No mapped score penalty is applied; permissions and structure remain unchecked.'} Weights are heuristic and have not been calibrated against expert rankings.</p></details>
     <details><summary>Capacity, costs &amp; sources</summary>${kv([
-      ['Modelled system', power(s.kwp)], ['Installation estimate', rm(s.capex)], ['Illustrative bill reduction', s.economicsReady === false ? 'Host data required' : rm(s.savings)], ['Annual upkeep assumption', rm(s.om)], ['Simple payback after upkeep', s.economicsReady === false ? 'Host data required' : years(s.payback)], ['Estimated CO₂ avoided', `${fmt(s.co2)} t/yr`], ['Demand', `${fmt(s.demand)} kWh/yr`], ['Demand basis', esc(s.demandSource)], ['Usable area basis', s.evidence?.usableM2 ? 'User-reported; unverified' : 'Category fraction of mapped footprint'], ['Footprint', `${fmt(s.area)} m²`], ['Mapped flags', s.flags.length ? esc(s.flags.join(', ')) : 'None; engineering checks pending'], ['Nearest mapped substation', s.gridDistM == null ? 'Not mapped' : `${fmt(s.gridDistM)} m; connection unverified`], ['P90 · weather variability only', `${fmt(s.kwhP90 / 1000)} MWh/yr`]
+      ['Modelled system', `${capacity(s.kwp)}${s.atapCapped ? ` · ${esc(capNote(s))}` : ''}`], ['Onsite-use ceiling', s.onsiteCeiling < 1 ? `${fmt(s.onsiteCeiling * 100)}% of output (${esc(s.categoryLabel)}: weekend and holiday generation is exported)` : 'None applied'], ['Installation estimate', rm(s.capex)], ['Illustrative bill reduction', s.economicsReady === false ? 'Host data required' : rm(s.savings)], ['Annual upkeep assumption', rm(s.om)], ['Simple payback after upkeep', s.economicsReady === false ? 'Host data required' : years(s.payback)], ['Estimated CO₂ avoided', `${fmt(s.co2)} t/yr`], ['Demand', `${fmt(s.demand)} kWh/yr`], ['Demand basis', esc(s.demandSource)], ['Usable area basis', s.evidence?.usableM2 ? 'User-reported; unverified' : 'Category fraction of mapped footprint'], ['Footprint', `${fmt(s.area)} m²`], ['Mapped flags', s.flags.length ? esc(s.flags.join(', ')) : 'None; engineering checks pending'], ['Nearest mapped substation', s.gridDistM == null ? 'Not mapped' : `${fmt(s.gridDistM)} m; connection unverified`], ['P90 · weather variability only', `${fmt(s.kwhP90 / 1000)} MWh/yr`]
     ])}<p class="note">Outline: <a href="https://www.openstreetmap.org/${esc(s.id)}" target="_blank" rel="noopener">${esc(s.id)}</a>. Yield: ${esc(state.yieldData?.source || 'fallback assumption')}. Costs and tariffs are scenario assumptions.</p></details>
     ${s.homes ? `<details><summary>Supporting home-finance scenario</summary>${houseCard(s)}</details>` : ''}
   </section>`;
@@ -1138,7 +1189,7 @@ function zoneCard(c) {
     <span class="badge review">Proposed zone · grid checks pending</span>
     <p class="note">This outline groups nearby roofs for exploration. It does not confirm ownership, planning approval or a shared electricity feeder.</p>
     <div class="big4">
-      <div><b>${power(c.kwp)}</b><span>rooftop solar</span></div>
+      <div><b>${capacity(c.kwp)}</b><span>rooftop solar</span></div>
       <div><b>${rm(c.leaseCost)}</b><span>to homeowners / yr</span></div>
       <div><b>${fmt(sold * 100)}%</b><span>output matched to potential buyers</span></div>
       <div><b>${fmt(c.co2, 0)} t</b><span>potential CO₂ avoided / year</span></div>
@@ -1452,7 +1503,7 @@ $('tabs').addEventListener('keydown', (e) => {
 const SETTINGS = [
   ['Tariffs & policy', {
     tariffResidential: 'Home tariff (RM/kWh)', tariffCommercial: 'Business energy charge (RM/kWh)', tariffIndustrial: 'Industrial energy charge (RM/kWh)',
-    exportSMP: 'Export price, ATAP SMP (RM/kWh)', atapCapKw: 'ATAP cap, businesses (kW)', homeCapKw: 'ATAP cap, homes (kW)',
+    exportSMP: 'Export price, ATAP SMP (RM/kWh)', atapCapKw: 'ATAP cap, businesses (kWp)', homeCapKw: 'ATAP cap, homes (kWp)',
     emissionFactor: 'Grid emissions (kg CO₂/kWh)'
   }],
   ['Solar costs & technology', {
@@ -1519,7 +1570,8 @@ async function exportStudy(kind) {
   }
   if (!state.shadingReady) { setStatus('Wait for the shading calculation to finish before exporting.'); return; }
   if (kind === 'print') {
-    openModal('Feasibility study shortlist', { html: studyBriefHTML(sites, { township: TOWNSHIPS[state.township].name, assumptions: state.assumptions, osmSnapshot: state.raw.fetchedAt, yieldSource: state.yieldData?.source || 'Fallback yield assumption' }) });
+    const html = studyBriefHTML(sites, { township: TOWNSHIPS[state.township].name, assumptions: state.assumptions, osmSnapshot: state.raw.fetchedAt, yieldSource: state.yieldData?.source || 'Fallback yield assumption' });
+    openModal('Feasibility study shortlist', { html: html.replace('<h2>Model and data record</h2>', () => `${baselineBriefHTML()}<h2>Model and data record</h2>`) });
     return;
   }
   if (kind === 'csv' || kind === 'review') download('csv', 'text/csv', shortlistCSV(sites, state.ranked, state.township, kind === 'review'), kind === 'review' ? 'solar-expert-review-template' : 'solar-study-shortlist');
@@ -1649,7 +1701,7 @@ function recompute() {
     }
   }
   if (layoutChanged) scoreSites(state.sites, state.assumptions, state.yieldData);
-  state.ranked = state.sites.filter((s) => !s.excluded).sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
+  state.ranked = rankSites(state.sites);
   state.cream = planCream(state.sites, state.assumptions);
   for (const c of state.cream.clusters) c.hull = convexHull(c.homes.flatMap((h) => h.polygon));
   state.zoneOf = new Map(state.cream.clusters.flatMap((c) => c.homes.map((h) => [h, c])));

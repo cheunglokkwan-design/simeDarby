@@ -68,8 +68,30 @@ of that last set. Select a site to keep its candidate list visible alongside **P
 | **Study export** | Printable site and portfolio briefs, CSV expert-review templates, evidence/assumptions JSON, GeoJSON and KML. Warnings and study metadata follow the selected sites; PDF uses the browser print dialog |
 | **Affordable housing** | Affordable-scheme blocks flagged as CREAM lease-income candidates (`src/affordable.js`) |
 | **Open roof registry** | Every roof per township as open GeoJSON under ODbL (`registry/`, `npm run registry`) |
-| **Google Solar comparison script** | A configurable capacity-comparison script for sampled homes (`npm run google-check`, needs your own API key); the presence of the script does not establish completed validation |
+| **Google Solar comparison script (not run)** | Optional capacity check against Google's Solar API for 30 sampled homes (`scripts/google-solar-check.mjs`). It needs your own API key and has not been run: no comparison results exist in this repo |
 | **Drone scans** | Per-roof Gaussian splats registered in `public/splats/scans.json`, viewed in-app with our predicted outline and panel area overlaid, an Align tool and a findings checklist (see `docs/drone-scans.md`) |
+| **Digital twin (Phase 2, `twin.html`)** | After shortlisting, verify one roof from a drone scan: roof planes and obstacles detected from the scan, a strung, setback-respecting draft array, sun/shade simulation, battery location and CAD/DXF export. Demonstrated on a team member's home, not an SDP site (see below) |
+
+## Phase 2: digital twin (`twin.html`)
+
+Once the map has shortlisted sites, the twin shows how one shortlisted roof would be
+checked in detail from a drone scan. It is demonstrated on a team member's home, not an
+SDP site. Open it at `/twin.html` (it links back to the shortlist).
+
+- Detects roof planes, edges and obstacles (vents, tanks, dormers) from the scan's
+  point cloud and a voxel occupancy grid.
+- Places a draft array: real module sizes, edge setbacks, obstacle clearance, a Solar
+  ATAP single-phase cap (5 kWac × DC/AC 1.2 ≈ 6 kWp) and equal strings per MPPT.
+- Simulates sun and shade through the year (beam shading from the scan, sky view for
+  diffuse) and shows a roof irradiation heatmap and live output for any date and time.
+- Suggests a battery location and cable route, and exports panels CSV, plan DXF and PNG.
+
+Honest limits: the scan has no GPS or survey control, so scale is estimated from
+architectural priors (about ±15 %), and location (Ara Damansara) and north are assumed;
+the house is not an SDP site. The layout is a draft for discussion, not a surveyed,
+structural or certified design. The Photo view is the original colour splat thinned to
+300,000 splats within 25 m of the house (`scripts/ply_to_twin_splat.py --max-splats
+300000 --radius 25`) so it loads quickly; planning uses the grey point cloud.
 
 Townships included: **Ara Damansara** (~4.6k buildings) and **Bandar Bukit Raja** (~7.3k buildings).
 
@@ -87,8 +109,9 @@ checks, add it to the study shortlist and export for expert assessment. Optional
 roof review supports a mapped draft, blocked areas and 3D scans. Draft
 panel layouts and finished-splat imports work locally. Video reconstruction uses
 the included [remote GPU worker](docs/drone-worker.md), which needs hosting and
-server-side connection settings before footage can be processed. Draft layouts
-use the mapped footprint; roof planes and obstacles still require review.
+server-side connection settings before footage can be processed. Township draft
+layouts use the mapped footprint; the Phase 2 digital twin (demo house only) detects
+roof planes and obstacles from a scan. Neither is a surveyed design.
 
 Community-solar boundaries are proposed geographic groups, with ownership and
 feeder checks pending. See the [zoning audit](docs/zoning-audit.md).
@@ -127,7 +150,7 @@ See `docs/competitors.md` for the deck's competitor table.
 ```bash
 npm run registry                    # rebuild registry/<township>.geojson
 npm run google-check -- --dry-run   # list the 30 sampled homes without calling Google
-npm run google-check                # needs GOOGLE_SOLAR_API_KEY in .env.local; writes docs/google-solar-check.md
+npm run google-check                # optional, not yet run: needs GOOGLE_SOLAR_API_KEY in .env.local; would write docs/google-solar-check.md
 ```
 
 ## Supabase (optional)
