@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Digital twin: rooftop solar</title>
+    <meta name="description" content="Drone-scanned house with a simulated rooftop solar array, sun simulation and CAD dimensions." />
+    <link rel="stylesheet" href="/src/twin.css" />
+  </head>
+  <body>
+    <header id="topbar">
+      <a class="brand" href="./" title="Back to the Solar Opportunity Mapper">
+        <span class="logo" aria-hidden="true">☀</span>
+        <span><b id="twinTitle">Digital twin</b><small id="twinSub">Loading scan…</small></span>
+      </a>
+      <span class="badge" id="sourceBadge" title="Where the data on this page comes from">Loading…</span>
+      <span class="seg" id="scanMode" role="group" aria-label="How the scan is drawn" hidden><button type="button" class="segbtn" data-mode="photo" aria-pressed="true" title="Full-colour Gaussian splat from the drone footage">Photo</button><button type="button" class="segbtn" data-mode="points" aria-pressed="false" title="Grey point cloud: geometry the planner measured">Points</button></span>
+      <nav class="views" aria-label="Camera views">
+        <button class="btn" data-view="top" title="Plan view, north up">Top</button>
+        <button class="btn" data-view="front" title="View from the south">Front</button>
+        <button class="btn" data-view="oblique" title="Oblique view from the south-east">Oblique</button>
+        <button class="btn" data-view="fit" title="Fit the whole scan">Fit</button>
+      </nav>
+      <div class="tools">
+        <button class="btn" id="snapshot" title="Download a PNG of the current view">PNG snapshot</button>
+        <a class="btn" href="./">Back to map</a>
+      </div>
+    </header>
+
+    <section id="summary" aria-label="Array summary">
+      <div class="metric"><b id="mPanels">–</b><span>panels</span></div>
+      <div class="metric"><b id="mKwp">–</b><span>kWp</span></div>
+      <div class="metric hero"><b id="mKwh">–</b><span>kWh / year</span></div>
+      <div class="metric"><b id="mYield">–</b><span>kWh/kWp specific yield</span></div>
+      <div class="metric"><b id="mShade">–</b><span>avg shade loss</span></div>
+      <details id="assumptions">
+        <summary>Assumptions</summary>
+        <ul id="assumptionList"></ul>
+      </details>
+    </section>
+
+    <main id="stage">
+      <div id="viewport" aria-label="3D view of the scanned house. Drag to orbit, right-drag to pan, scroll to zoom, double-click to focus.">
+        <canvas id="gl" tabindex="0"></canvas>
+        <div id="labels" aria-hidden="true"></div>
+        <div id="compass" title="North (drag the North offset in Location to correct the scan heading)" aria-hidden="true"><i></i><span>N</span></div>
+        <div id="status" role="status" aria-live="polite" hidden></div>
+        <div id="banner" role="note" hidden></div>
+        <div id="tooltip" role="tooltip" hidden></div>
+        <div id="popup" hidden role="dialog" aria-labelledby="popupTitle">
+          <button class="x" id="popupClose" aria-label="Close explanation">×</button>
+          <small id="popupKicker"></small>
+          <b id="popupTitle"></b>
+          <ul id="popupBullets"></ul>
+          <div class="popup-stats" id="popupStats"></div>
+        </div>
+        <div id="help">Drag: orbit · right-drag: pan · scroll: zoom · double-click: focus · click a panel: why here?</div>
+        <div id="legend" hidden>
+          <b>Annual sun on roof</b>
+          <div class="ramp"><i id="legendMark" title="Flux threshold"></i></div>
+          <div class="ramp-labels"><span id="legendMin"></span><span>kWh/m²/yr</span><span id="legendMax"></span></div>
+        </div>
+        <section id="sunbar" aria-label="Sun simulation">
+          <button class="btn icon" id="play" aria-label="Play the day" title="Play / pause the day">▶</button>
+          <label class="sr" for="date">Date</label>
+          <input type="date" id="date" />
+          <label class="time" for="time"><span class="sr">Time of day</span>
+            <input type="range" id="time" min="390" max="1170" step="5" value="720" />
+          </label>
+          <output id="timeOut" for="time">12:00</output>
+          <span class="seg" role="group" aria-label="Sky for the live readout"><button type="button" class="segbtn" data-sky="clear" aria-pressed="false" title="Cloudless sky">Clear day</button><button type="button" class="segbtn" data-sky="typical" aria-pressed="true" title="Typical sky for this month (climatology)">Typical day</button></span>
+          <div class="sunstat"><span id="sunPos">–</span><b id="nowKw">–</b><span id="dayKwh"></span></div>
+        </section>
+      </div>
+
+      <aside id="side" aria-label="Controls and details">
+        <nav class="tabs" role="tablist">
+          <button role="tab" id="tab-plan" aria-controls="panel-plan" data-tab="plan" aria-selected="true">Design</button>
+          <button role="tab" id="tab-module" aria-controls="panel-module" data-tab="module" aria-selected="false">Module</button>
+          <button role="tab" id="tab-cad" aria-controls="panel-cad" data-tab="cad" aria-selected="false">CAD</button>
+          <button role="tab" id="tab-site" aria-controls="panel-site" data-tab="site" aria-selected="false">Site</button>
+        </nav>
+
+        <section id="panel-plan" role="tabpanel" aria-labelledby="tab-plan" data-panel="plan">
+          <h2>Array design <span id="planState" class="pill" hidden>re-planning…</span></h2>
+          <label class="field" for="panelModel">Panel model</label>
+          <select id="panelModel"></select>
+          <p class="note" id="panelSpec"></p>
+          <label class="field" for="mounting">Mounting</label>
+          <select id="mounting">
+            <option value="flush">Flush rails, parallel to the roof</option>
+            <option value="tilted">Tilted frames (flat roofs)</option>
+          </select>
+          <p class="note" id="mountingInfo"></p>
+          <label class="row" id="tiltRow" hidden><span>Frame tilt</span><input type="range" id="tilt" min="5" max="25" step="1" value="10" /><output id="tiltOut">10°</output></label>
+          <label class="field" for="orientation">Module orientation</label>
+          <select id="orientation">
+            <option value="auto">Auto (whichever fits more)</option>
+            <option value="portrait">Portrait</option>
+            <option value="landscape">Landscape</option>
+          </select>
+          <label class="row"><span>Edge setback</span><input type="range" id="setback" min="0.2" max="1.5" step="0.05" value="0.4" /><output id="setbackOut">0.40 m</output></label>
+          <div class="row">
+            <span>System size</span>
+            <span class="seg" role="group" aria-label="System size mode">
+              <button type="button" class="segbtn" data-size="atap" aria-pressed="true" title="Solar ATAP single-phase limit: 5 kWac x 1.3 DC/AC = 6.5 kWp">ATAP</button>
+              <button type="button" class="segbtn" data-size="max" aria-pressed="false" title="Use every valid spot">Max</button>
+              <button type="button" class="segbtn" data-size="kwp" aria-pressed="false" title="Choose a kWp target">Target</button>
+            </span>
+            <span></span>
+          </div>
+          <label class="row" id="kwpRow" hidden><span>Target</span><input type="range" id="kwp" min="1" max="20" step="0.5" value="6" /><output id="kwpOut">6.0 kWp</output></label>
+          <p class="note" id="sizeNote">ATAP: capped at the Solar ATAP single-phase limit (5 kWac × 1.3 = 6.5 kWp).</p>
+          <label class="row"><span>Min. sun</span><input type="range" id="flux" min="0" max="1600" step="10" value="0" /><output id="fluxOut">off</output></label>
+          <p class="note">Min. sun skips roof areas whose annual irradiation (kWh/m²/yr) is below the threshold. Turn on the heatmap below to see it.</p>
+          <h3>Layers</h3>
+          <label class="chk"><input type="checkbox" id="lyrHeat" /> Roof sun heatmap</label>
+          <label class="chk"><input type="checkbox" id="lyrRejected" checked /> Excluded and unused areas</label>
+          <label class="chk"><input type="checkbox" id="lyrDims" /> Show dimensions (on in CAD)</label>
+          <label class="chk"><input type="checkbox" id="lyrScanShadow" checked /> Cast shadows on the scan</label>
+          <label class="chk"><input type="checkbox" id="lyrSunPath" checked /> Sun path</label>
+          <label class="row"><span>Point size</span><input type="range" id="pointSize" min="0.5" max="3" step="0.1" value="1.2" /><output id="pointSizeOut">1.2×</output></label>
+          <h3>Key</h3>
+          <div class="key"><i class="k-scan"></i>Drone scan (grey points; colours lost in conversion)</div>
+          <div class="key"><i class="k-panel"></i>Simulated module (cyan outline)</div>
+          <div class="key"><i class="k-sel"></i>Selected module</div>
+          <div class="key"><i class="k-rej"></i>Excluded: shade, obstacle or object on the roof</div>
+          <div class="key"><i class="k-band"></i>Edge setback band / roof with no room for a block</div>
+          <div class="key"><i class="k-unneeded"></i>Usable, not needed at this system size</div>
+        </section>
+
+        <section id="panel-module" role="tabpanel" aria-labelledby="tab-module" data-panel="module" hidden>
+          <label class="field" for="panelPick">Jump to module</label>
+          <select id="panelPick"></select>
+          <div id="moduleDetail"><p class="note">Click a panel in the 3D view to see why it was placed there.</p></div>
+        </section>
+
+        <section id="panel-cad" role="tabpanel" aria-labelledby="tab-cad" data-panel="cad" hidden>
+          <label class="field" for="arrayPick">Array</label>
+          <select id="arrayPick"></select>
+          <div id="cadTable"></div>
+          <h3>Export</h3>
+          <div class="actions">
+            <button class="btn" id="exportCsv">Panels CSV</button>
+            <button class="btn" id="exportDxf">Plan DXF</button>
+            <button class="btn" id="exportPng">PNG snapshot</button>
+          </div>
+          <p class="note">CSV: centre and four corners of every module in the twin frame (metres, x east, y up, z south). DXF: plan view in metres (X east, Y north) with layers ROOF, OBSTACLES, PANELS, EXCLUDED and DIMENSIONS. Sloped lengths are annotated as true on-slope lengths.</p>
+        </section>
+
+        <section id="panel-site" role="tabpanel" aria-labelledby="tab-site" data-panel="site" hidden>
+          <h2>Location</h2>
+          <p class="note">A drone scan has no GPS or compass, so location and heading are assumptions. Changing them re-runs the sun and yield simulation.</p>
+          <div class="grid2">
+            <label class="field" for="lat">Latitude (°N)<input type="number" id="lat" step="0.0001" min="-60" max="60" /></label>
+            <label class="field" for="lon">Longitude (°E)<input type="number" id="lon" step="0.0001" min="-180" max="180" /></label>
+          </div>
+          <label class="row"><span>North offset</span><input type="range" id="north" min="-180" max="180" step="1" value="0" /><output id="northOut">0°</output></label>
+          <p class="note" id="northNote"></p>
+          <div class="actions"><button class="btn" id="resetSite">Reset to scan defaults</button></div>
+          <h3>Scan</h3>
+          <table id="scanTable"></table>
+        </section>
+      </aside>
+    </main>
+    <script type="module" src="/src/twin-viewer.js"></script>
+  </body>
+</html>

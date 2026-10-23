@@ -40,7 +40,7 @@ export default defineConfig(({ mode }) => {
   plugins: configured ? [] : [{ name: 'drone-worker-status', configureServer: unavailable, configurePreviewServer: unavailable }],
   build: {
     rollupOptions: {
-      input: { main: `${root}/index.html`, splat: `${root}/splat.html` }
+      input: { main: `${root}/index.html`, splat: `${root}/splat.html`, twin: `${root}/twin.html` }
     }
   },
   worker: { format: 'es' }
